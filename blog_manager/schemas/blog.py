@@ -48,6 +48,31 @@ class FeedEntry:
 
 
 @dataclass(frozen=True)
+class ExpandedPost:
+    """Structured output from the main expansion/orchestrator agent."""
+
+    title: str
+    slug: str
+    date: str
+    excerpt: str
+    body_markdown: str
+    image_prompt: str
+    seo_title: str = ""
+    seo_description: str = ""
+    safety_notes: list[str] = field(default_factory=list)
+
+    def to_feed_entry(self) -> FeedEntry:
+        return FeedEntry(
+            slug=self.slug,
+            title=self.title,
+            date=self.date,
+            excerpt=self.excerpt,
+            coverImage=f"blog/{self.slug}/cover.jpg",
+            contentPath=f"blog/{self.slug}/index.html",
+        )
+
+
+@dataclass(frozen=True)
 class LocalArtifact:
     """Local file prepared by a subagent for main-flow S3 publishing.
 
@@ -61,3 +86,39 @@ class LocalArtifact:
     relative_key: str
     content_type: str
     metadata: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AgentInvocation:
+    """Instruction for a later workflow node to invoke a named subagent.
+
+    `instructions` is the complete prompt payload the orchestrator wants the
+    workflow to pass to that subagent. It should describe the assignment and
+    expected local artifact, without assuming the subagent's internal tools.
+    """
+
+    name: str
+    purpose: str
+    instructions: str
+
+
+@dataclass(frozen=True)
+class BlogAgentResult:
+    """Result returned by the main expansion/orchestrator agent."""
+
+    post: ExpandedPost
+    subagent_plan: list[AgentInvocation] = field(default_factory=list)
+    raw_response: str = ""
+
+
+@dataclass
+class BlogGraphState:
+    """Shared state shape for the future LangGraph blog generation workflow."""
+
+    idea: BlogIdea | None = None
+    expanded_post: ExpandedPost | None = None
+    feed_entry: FeedEntry | None = None
+    html_artifact: LocalArtifact | None = None
+    image_artifact: LocalArtifact | None = None
+    subagent_plan: list[AgentInvocation] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
