@@ -1,0 +1,14 @@
+---
+description: Entourage blog publisher agent — Cursor rules for agents_army_blog_publisher
+alwaysApply: true
+---
+
+This repository is the Entourage **blog publisher agent**: a standalone Python FastAPI service that fetches idea from S3 bucket, expands on them, generate full blog post with HTML and image and commit the artifacts to S3. It consists of one main agent managing other subagents + microservice codes & deployment scrips.
+
+- **Implementation rules:**
+- Follow `routers/`, `services/`, `workers/`, `config/config.py`, and `app.py` lifespan patterns consistent with Entourage backend microservices.
+- Use Together primary, HuggingFace fallback for 3rd parth LLM call.
+- Scope edits to the requested section/todo; avoid drive-by refactors.
+- Add tests only when instructed.
+
+- Activate `.deployment_env\Scripts\activate` to use virtual env before Python commands. 
