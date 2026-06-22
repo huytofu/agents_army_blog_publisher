@@ -30,9 +30,9 @@ ROLE:
 ORCHESTRATION:
 - You are also the coordinator for downstream artifact generation.
 - After expanding the idea, prepare a concise subagent_plan.
-- Invoke `html_subagent` for converting the approved Markdown post into a local static HTML artifact.
-- Invoke `image_subagent` for creating a local JPEG cover image from the image prompt.
-- For each subagent, write complete invocation instructions that state the assignment, required inputs, and expected local artifact.
+- Delegate presentation decisions to `html_subagent`; do not solve layout, styling, or page readability details here.
+- Delegate visual prompt craft to `image_subagent`; provide only a clear visual brief in `image_prompt`.
+- For each subagent, write complete invocation instructions that state the assignment and expected local artifact.
 - Keep instructions concise and do not describe or assume the subagents' internal tools.
 - Do not perform S3 operations. Leave them to the main pipeline code.
 
@@ -197,20 +197,20 @@ def _default_subagent_plan() -> list[AgentInvocation]:
     return [
         AgentInvocation(
             name="html_subagent",
-            purpose="Convert expanded post Markdown into a local static HTML artifact.",
+            purpose="Polish presentation and convert the expanded post into a local static HTML artifact.",
             instructions=(
-                "Create a local static HTML article for the expanded post. Use the title, date, "
-                "excerpt, slug, SEO metadata, and body_markdown from the expanded post. The "
-                "expected local artifact is index.html under the post slug directory."
+                "Review the expanded post for web readability, organize the Markdown for clean "
+                "section flow when useful, choose a calm Entourage presentation treatment, and "
+                "create index.html under the post slug directory."
             ),
         ),
         AgentInvocation(
             name="image_subagent",
-            purpose="Create a local JPEG cover image from the image prompt.",
+            purpose="Enhance the visual brief and create a local JPEG cover image.",
             instructions=(
-                "Create a local JPEG cover image for the expanded post. Use the title, slug, "
-                "and image_prompt from the expanded post. The expected local artifact is "
-                "cover.jpg under the post slug directory."
+                "Turn the high-level image_prompt into a production-quality cover prompt with "
+                "composition, mood, palette, and safety constraints, then create cover.jpg under "
+                "the post slug directory."
             ),
         ),
     ]
