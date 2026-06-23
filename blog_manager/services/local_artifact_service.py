@@ -87,6 +87,7 @@ class ConfiguredImageProvider:
         response = client.images.generate(
             prompt=prompt,
             model=model,
+            response_format="base64"
         )
         data_item = _first_response_item(response)
 
