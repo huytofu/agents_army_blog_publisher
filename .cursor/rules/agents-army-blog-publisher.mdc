@@ -3,10 +3,12 @@ description: Entourage blog publisher agent — Cursor rules for agents_army_blo
 alwaysApply: true
 ---
 
-This repository is the Entourage **blog publisher agent**: a standalone Python FastAPI service that fetches idea from S3 bucket, expands on them, generate full blog post with HTML and image and commit the artifacts to S3. It consists of one main agent managing other subagents + microservice codes & deployment scrips.
+This repository is the Entourage **blog publisher agent**: a standalone Python service running on Lamba and Eventbridge that fetches idea from S3 bucket, expands on them, generate full blog post with HTML and image and commit the artifacts to S3. It consists of one main agent managing other subagents + related codes + deployment scrips.
 
 - **Implementation rules:**
-- Follow `routers/`, `services/`, `workers/`, `config/config.py`, and `app.py` lifespan patterns consistent with Entourage backend microservices.
+- Follow `routers/`, `services/`, `workers/`, `config/config.py` patterns consistent with Entourage backend microservices. However, as a Lambda service, it differs from other microservices in:
+a) Not having app.py FastAPI file
+b) Not running on persistent EC2 server
 - Use Together primary, HuggingFace fallback for 3rd parth LLM call.
 - Scope edits to the requested section/todo; avoid drive-by refactors.
 - Add tests only when instructed.
