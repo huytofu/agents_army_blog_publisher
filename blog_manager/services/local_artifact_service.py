@@ -123,6 +123,38 @@ class LocalArtifactService:
         if path.exists():
             path.unlink()
 
+    def validate_artifact(
+        self,
+        artifact: LocalArtifact | None,
+        *,
+        slug: str,
+        filename: str,
+        content_type: str,
+    ) -> list[str]:
+        """Return validation errors for a local artifact descriptor."""
+        errors: list[str] = []
+        if artifact is None:
+            return ["Artifact is missing."]
+
+        expected_key = f"blog/{_validate_slug(slug)}/{filename}"
+        if artifact.relative_key != expected_key:
+            errors.append(
+                f"Artifact key mismatch: expected {expected_key}, got {artifact.relative_key}."
+            )
+        if artifact.content_type != content_type:
+            errors.append(
+                f"Artifact content type mismatch: expected {content_type}, got {artifact.content_type}."
+            )
+
+        try:
+            path = self._safe_path(artifact.local_path)
+        except LocalArtifactError as exc:
+            return [*errors, str(exc)]
+
+        if not path.is_file():
+            errors.append(f"Artifact file does not exist: {path}.")
+        return errors
+
     def _post_dir(self, slug: str) -> Path:
         path = self._safe_path(self.work_root / "blog" / slug)
         path.mkdir(parents=True, exist_ok=True)

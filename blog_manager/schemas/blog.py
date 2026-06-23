@@ -111,6 +111,39 @@ class BlogAgentResult:
     raw_response: str = ""
 
 
+@dataclass(frozen=True)
+class BlogPipelineDecision:
+    """Strict decision returned by the ReAct-style pipeline supervisor."""
+
+    decision: str
+    reason: str
+    content_revision_instruction: str = ""
+    artifact_retry_instruction: str = ""
+    raw_response: str = ""
+
+
+@dataclass
+class HtmlArtifactState:
+    """Retryable state used inside the HTML artifact subgraph."""
+
+    expanded_post: ExpandedPost
+    instructions: str
+    artifact: LocalArtifact | None = None
+    retry_count: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ImageArtifactState:
+    """Retryable state used inside the image artifact subgraph."""
+
+    expanded_post: ExpandedPost
+    instructions: str
+    artifact: LocalArtifact | None = None
+    retry_count: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
 @dataclass
 class BlogGraphState:
     """Shared state shape for the future LangGraph blog generation workflow."""
@@ -121,4 +154,10 @@ class BlogGraphState:
     html_artifact: LocalArtifact | None = None
     image_artifact: LocalArtifact | None = None
     subagent_plan: list[AgentInvocation] = field(default_factory=list)
+    main_decision: BlogPipelineDecision | None = None
+    main_round: int = 0
+    artifact_round: int = 0
+    html_retry_count: int = 0
+    image_retry_count: int = 0
+    publish_ready: bool = False
     errors: list[str] = field(default_factory=list)

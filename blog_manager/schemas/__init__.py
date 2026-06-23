@@ -5,8 +5,11 @@ from blog_manager.schemas.blog import (
     BlogAgentResult,
     BlogGraphState,
     BlogIdea,
+    BlogPipelineDecision,
     ExpandedPost,
     FeedEntry,
+    HtmlArtifactState,
+    ImageArtifactState,
     LocalArtifact,
 )
 
@@ -15,7 +18,10 @@ __all__ = [
     "BlogAgentResult",
     "BlogGraphState",
     "BlogIdea",
+    "BlogPipelineDecision",
     "ExpandedPost",
     "FeedEntry",
+    "HtmlArtifactState",
+    "ImageArtifactState",
     "LocalArtifact",
 ]

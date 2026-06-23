@@ -8,6 +8,7 @@ import re
 from datetime import date
 from typing import Any
 
+from blog_manager.config import EXPANSION_LLM_CONFIG
 from blog_manager.schemas import (
     AgentInvocation,
     BlogAgentResult,
@@ -64,11 +65,16 @@ class BlogExpansionAgent:
     """Main agent that expands ideas and plans downstream subagent work."""
 
     def __init__(self, llm_client: BlogLlmClient | None = None):
-        self.llm_client = llm_client or BlogLlmClient()
+        self.llm_client = llm_client or BlogLlmClient(config=EXPANSION_LLM_CONFIG)
 
-    async def expand_idea(self, idea: BlogIdea) -> BlogAgentResult:
+    async def expand_idea(
+        self,
+        idea: BlogIdea,
+        *,
+        revision_instruction: str = "",
+    ) -> BlogAgentResult:
         """Expand one parsed idea into a structured post plus subagent plan."""
-        messages = self._build_messages(idea)
+        messages = self._build_messages(idea, revision_instruction=revision_instruction)
         raw_response = await self.llm_client.chat_completion(messages)
 
         try:
@@ -98,15 +104,32 @@ class BlogExpansionAgent:
             raw_response=raw_response,
         )
 
-    def _build_messages(self, idea: BlogIdea) -> list[dict[str, str]]:
+    def _build_messages(
+        self,
+        idea: BlogIdea,
+        *,
+        revision_instruction: str = "",
+    ) -> list[dict[str, str]]:
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(idea)},
+            {
+                "role": "user",
+                "content": _build_user_prompt(
+                    idea,
+                    revision_instruction=revision_instruction,
+                ),
+            },
         ]
 
 
-def _build_user_prompt(idea: BlogIdea) -> str:
+def _build_user_prompt(idea: BlogIdea, *, revision_instruction: str = "") -> str:
     frontmatter = json.dumps(idea.frontmatter, indent=2, ensure_ascii=False)
+    revision_section = ""
+    if revision_instruction.strip():
+        revision_section = f"""
+## Revision instruction
+{revision_instruction.strip()}
+"""
     return f"""## Idea source
 S3 key: {idea.key}
 
@@ -115,6 +138,7 @@ S3 key: {idea.key}
 
 ## Rough content
 {idea.body.strip()}
+{revision_section}
 """
 
 

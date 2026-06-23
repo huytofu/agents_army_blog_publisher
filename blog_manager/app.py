@@ -1,31 +1,26 @@
-"""FastAPI application entrypoint for the blog publisher service."""
+"""Dormant optional FastAPI entrypoint.
+
+The production blog publisher now runs as an EventBridge-scheduled Lambda
+container through `blog_manager.workers.lambda_handler`. This module is kept
+only as a marker for a possible future HTTP/dev-debug surface and intentionally
+does not import FastAPI, so Lambda packaging does not require web framework
+dependencies.
+"""
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-
-from blog_manager import __version__
-from blog_manager.config import SERVER_CONFIG
+from typing import NoReturn
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(
-        title="Entourage Blog Publisher",
-        version=__version__,
-        description="Publishes generated Entourage blog posts from S3 idea files.",
+app = None
+
+
+def create_app() -> NoReturn:
+    """Fail clearly if someone tries to use the dormant HTTP entrypoint."""
+    raise RuntimeError(
+        "FastAPI app is dormant. Use blog_manager.workers.lambda_handler.handler "
+        "for Lambda or blog_manager.workers.run_blog_job for CLI execution."
     )
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {
-            "service": "blog_publisher",
-            "status": "ok",
-            "version": __version__,
-        }
 
-    return app
-
-
-app = create_app()
-
-__all__ = ["app", "create_app", "SERVER_CONFIG"]
+__all__ = ["app", "create_app"]
