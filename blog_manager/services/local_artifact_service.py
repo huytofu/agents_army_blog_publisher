@@ -14,7 +14,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Protocol
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from blog_manager.config import BLOG_STORAGE_CONFIG, IMAGE_CONFIG
 from blog_manager.constants import (
@@ -106,8 +106,12 @@ class ConfiguredImageProvider:
         if not url:
             return b""
         timeout = int(self.config.get("TIMEOUT_SEC") or IMAGE_CONFIG["TIMEOUT_SEC"])
+        request = Request(
+            url,
+            headers={"User-Agent": "entourage-blog-publisher/1.0"},
+        )
         try:
-            with urlopen(url, timeout=timeout) as response:
+            with urlopen(request, timeout=timeout) as response:
                 return response.read()
         except Exception as exc:
             logger.warning("Together image URL download failed: %s", exc)
