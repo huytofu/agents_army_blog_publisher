@@ -366,7 +366,7 @@ def _decision_or_fail(state: BlogGraphState, allowed: set[str]) -> str:
         return "fail"
     if state.main_decision.decision not in allowed:
         return "fail"
-    if _rounds_exhausted(state, WORKER_CONFIG):
+    if state.main_decision.decision != "publish" and _rounds_exhausted(state, WORKER_CONFIG):
         return "fail"
     return state.main_decision.decision
 
