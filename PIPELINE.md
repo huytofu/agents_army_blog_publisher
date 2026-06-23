@@ -24,7 +24,7 @@ At a high level, one scheduled worker run should:
 9. Overwrite the original idea file in S3 with `processed: true`.
 10. Clean up local artifacts after successful upload.
 
-The current worker entrypoint loads configuration and is ready for the later job-runner task. The graph code is available in `blog_manager/graphs/blog_generation_graph.py`.
+The current worker entrypoint can run the pipeline as a one-shot job for CLI or Lambda use. The graph code is available in `blog_manager/graphs/blog_generation_graph.py`, and deployment steps are documented in `DEPLOYMENT.md`.
 
 ## Top-Level Diagram
 
@@ -261,10 +261,31 @@ errors: list[str] = []
 - `blog_manager/services/local_artifact_service.py`: local file writes, artifact validation, cleanup helpers.
 - `blog_manager/services/s3_blog_store.py`: S3 read/write adapter for main publisher nodes.
 - `blog_manager/config/config.py`: storage, LLM, image, worker, and graph execution settings.
+- `blog_manager/workers/run_blog_job.py`: reusable one-shot worker for CLI and Lambda.
+- `blog_manager/workers/lambda_handler.py`: EventBridge/Lambda handler wrapper.
+- `Dockerfile.lambda`: Lambda container image build file.
+- `DEPLOYMENT.md`: ECR, Lambda, EventBridge, IAM, logs, rollback, and Fargate fallback guide.
+
+## Deployment Summary
+
+The primary deployment target is an EventBridge-scheduled Lambda container. This matches the expected cadence of one run every 3 days and avoids paying for idle EC2 capacity.
+
+Production handler:
+
+```text
+blog_manager.workers.lambda_handler.handler
+```
+
+Local dry-run command:
+
+```bash
+python -m blog_manager.workers.run_blog_job --dry-run --max-ideas 1
+```
+
+Lambda uses `/tmp/blog-work` for local HTML and image artifacts. `blog_manager/app.py` is dormant and not part of the Lambda runtime path.
 
 ## Current Limitations
 
-- The cron worker is not yet wired to process ideas end-to-end.
 - HTML and image branches are retryable workflow methods, not independently compiled nested `StateGraph`s.
 - Real image provider integration is still configurable/future work. `BLOG_IMAGE_PROVIDER=placeholder` exists for local plumbing.
 - End-to-end tests with mocked S3, LLM, and image providers are still pending.

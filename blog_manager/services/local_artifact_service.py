@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import base64
 import html
+import asyncio
+import logging
 import re
 import shutil
 from pathlib import Path
 from typing import Protocol
+from urllib.request import urlopen
 
 from blog_manager.config import BLOG_STORAGE_CONFIG, IMAGE_CONFIG
 from blog_manager.constants import (
@@ -22,6 +25,13 @@ from blog_manager.constants import (
 )
 from blog_manager.schemas import ExpandedPost, LocalArtifact
 from blog_manager.services.idea_parser import slugify
+
+try:
+    from together import Together  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional until image provider is enabled
+    Together = None
+
+logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_JPEG_BASE64 = (
     "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
@@ -48,9 +58,8 @@ class ImageProvider(Protocol):
 class ConfiguredImageProvider:
     """Configurable image provider wrapper.
 
-    Exact production providers/models can be selected later through config. For
-    now, `BLOG_IMAGE_PROVIDER=placeholder` returns a tiny valid JPEG for dry-run
-    plumbing; any other provider value fails clearly until implemented.
+    `BLOG_IMAGE_PROVIDER=together` uses Together's image API. `placeholder`
+    returns a tiny valid JPEG for dry-run plumbing.
     """
 
     def __init__(self, config: dict | None = None):
@@ -59,10 +68,50 @@ class ConfiguredImageProvider:
     async def generate_jpeg(self, *, prompt: str, width: int, height: int) -> bytes:
         provider = str(self.config.get("PROVIDER") or "").strip().lower()
         if provider == "placeholder":
-            return base64.b64decode(_PLACEHOLDER_JPEG_BASE64)
+            return _default_image_bytes()
+        if provider == "together":
+            return await asyncio.to_thread(self._generate_together_image, prompt=prompt)
         raise LocalArtifactError(
             "BLOG_IMAGE_PROVIDER is not configured with an implemented image provider."
         )
+
+    def _generate_together_image(self, *, prompt: str) -> bytes:
+        if Together is None:
+            raise LocalArtifactError("together is required for BLOG_IMAGE_PROVIDER=together.")
+        model = str(self.config.get("MODEL") or "").strip()
+        if not model:
+            raise LocalArtifactError("BLOG_IMAGE_MODEL is required for Together image generation.")
+
+        api_key = str(self.config.get("API_KEY") or "").strip()
+        client = Together(api_key=api_key) if api_key else Together()
+        response = client.images.generate(
+            prompt=prompt,
+            model=model,
+        )
+        data_item = _first_response_item(response)
+
+        image_bytes = _image_bytes_from_b64(data_item)
+        if image_bytes:
+            return image_bytes
+
+        image_bytes = self._image_bytes_from_url(data_item)
+        if image_bytes:
+            return image_bytes
+
+        logger.warning("Together image response did not include usable b64_json or url; using default image.")
+        return _default_image_bytes()
+
+    def _image_bytes_from_url(self, data_item: object | None) -> bytes:
+        url = str(getattr(data_item, "url", "") or "").strip()
+        if not url:
+            return b""
+        timeout = int(self.config.get("TIMEOUT_SEC") or IMAGE_CONFIG["TIMEOUT_SEC"])
+        try:
+            with urlopen(url, timeout=timeout) as response:
+                return response.read()
+        except Exception as exc:
+            logger.warning("Together image URL download failed: %s", exc)
+            return b""
 
 
 class LocalArtifactService:
@@ -252,6 +301,37 @@ def _inline_markdown(value: str) -> str:
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
     return escaped
+
+
+def _first_response_item(response: object) -> object | None:
+    data = getattr(response, "data", None)
+    if not data:
+        return None
+    try:
+        return data[0]
+    except (IndexError, TypeError):
+        return None
+
+
+def _image_bytes_from_b64(data_item: object | None) -> bytes:
+    encoded = str(getattr(data_item, "b64_json", "") or "").strip()
+    if not encoded:
+        return b""
+    try:
+        return base64.b64decode(encoded)
+    except Exception as exc:
+        logger.warning("Together image b64_json decode failed: %s", exc)
+        return b""
+
+
+def _default_image_bytes() -> bytes:
+    padded = _PLACEHOLDER_JPEG_BASE64 + "=" * (-len(_PLACEHOLDER_JPEG_BASE64) % 4)
+    try:
+        return base64.b64decode(padded)
+    except Exception:
+        # Minimal JPEG SOI/EOI bytes keep the pipeline moving if the embedded
+        # placeholder is ever malformed.
+        return b"\xff\xd8\xff\xd9"
 
 
 def _validate_slug(slug: str) -> str:
