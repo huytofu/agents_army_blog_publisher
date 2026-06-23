@@ -15,7 +15,7 @@ from blog_manager.tools.html_write_tool import HtmlWriteTool
 
 logger = logging.getLogger(__name__)
 
-HTML_SUBAGENT_PROMPT = """You are html_subagent.
+HTML_SUBAGENT_PROMPT = """You are html_subagent. An expert in HTML and web content presentation/accessibility.
 
 MISSION:
 Create a local static HTML article artifact that reads well on the Entourage blog.
@@ -23,7 +23,13 @@ Create a local static HTML article artifact that reads well on the Entourage blo
 VALUE-ADDED RESPONSIBILITIES:
 - Improve web readability & accessibility without changing the core meaning of the post.
 - Normalize paragraph spacing, heading flow, and list formatting before rendering.
-- Preserve the main agent's words unless a tiny presentation edit is needed.
+- Preserve the majority of sentences words. Do not add new sections or paragraphs.
+- Minor presentation or aesthetics related edits are allowed. You may have the freedom to:
+1. Add illustration tables or diagrams
+2. Highlight key phrases or words in different stylings (colors/sizes/fonts/bold/italic)
+3. Extract key terms into standalone subheadings
+4. Break down long paragraphs into smaller bullet points/numbered lists
+5. Add callouts/visual cues/section dividers/footnotes to improve readability or aesthetics
 
 BOUNDARIES:
 - Do not access S3.
