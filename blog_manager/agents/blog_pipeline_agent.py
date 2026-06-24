@@ -128,7 +128,7 @@ def build_content_review_observation(state: BlogGraphState) -> str:
     return _json_observation(
         "MainAgentReviewContent",
         {
-            "expanded_post": post.__dict__ if post else None,
+            "expanded_post": _post_payload(post),
             "main_round": state.main_round,
             "errors": state.errors,
             "allowed_decisions": ["revise_content", "generate_artifacts", "fail"],
@@ -144,7 +144,7 @@ def build_finalize_subagents_observation(
     return _json_observation(
         "FinalizeSubagentsPlan",
         {
-            "expanded_post": post.__dict__ if post else None,
+            "expanded_post": _post_payload(post),
             "default_subagent_plan": [item.__dict__ for item in default_plan],
             "main_round": state.main_round,
             "errors": state.errors,
@@ -158,8 +158,9 @@ def build_artifact_review_observation(state: BlogGraphState) -> str:
         "MainAgentReviewArtifacts",
         {
             "expanded_post_slug": state.expanded_post.slug if state.expanded_post else "",
-            "html_artifact": state.html_artifact.__dict__ if state.html_artifact else None,
-            "image_artifact": state.image_artifact.__dict__ if state.image_artifact else None,
+            "html_artifact": _artifact_payload(state.html_artifact),
+            "image_artifact": _artifact_payload(state.image_artifact),
+            "image_artifacts": [_artifact_payload(artifact) for artifact in state.image_artifacts],
             "artifact_round": state.artifact_round,
             "html_retry_count": state.html_retry_count,
             "image_retry_count": state.image_retry_count,
@@ -221,6 +222,41 @@ def _json_observation(node_name: str, payload: dict[str, Any]) -> str:
         "## Observation JSON\n"
         f"{json.dumps(payload, indent=2, ensure_ascii=False)}"
     )
+
+
+def _post_payload(post: Any | None) -> dict[str, Any] | None:
+    if post is None:
+        return None
+    return {
+        "title": post.title,
+        "slug": post.slug,
+        "date": post.date,
+        "excerpt": post.excerpt,
+        "body_markdown": post.body_markdown,
+        "image_prompt": post.image_prompt,
+        "supporting_images": [
+            {
+                "filename": image.filename,
+                "prompt": image.prompt,
+                "alt_text": image.alt_text,
+            }
+            for image in post.supporting_images
+        ],
+        "seo_title": post.seo_title,
+        "seo_description": post.seo_description,
+        "safety_notes": post.safety_notes,
+    }
+
+
+def _artifact_payload(artifact: Any | None) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    return {
+        "local_path": artifact.local_path,
+        "relative_key": artifact.relative_key,
+        "content_type": artifact.content_type,
+        "metadata": artifact.metadata,
+    }
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:

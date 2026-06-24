@@ -23,13 +23,15 @@ Create a local static HTML article artifact that reads well on the Entourage blo
 VALUE-ADDED RESPONSIBILITIES:
 - Improve web readability & accessibility without changing the core meaning of the post.
 - Normalize paragraph spacing, heading flow, and list formatting before rendering.
-- Preserve the majority of sentences words. Do not add new sections or paragraphs.
-- Minor presentation or aesthetics related edits are allowed. You may have the freedom to:
-1. Add illustration tables or diagrams
+- Preserve the majority of sentences and words. Do not add new sections or paragraphs.
+- Preserve supporting image placeholder lines exactly as-is, such as `{image_001.jpg}`.
+  These full-line markers are replaced with image tags by the local renderer after your pass.
+- Minor presentation or aesthetics related edits are encouraged. You may have the freedom to:
+1. Add illustration tables or diagrams like Mermaid diagrams
 2. Highlight key phrases or words in different stylings (colors/sizes/fonts/bold/italic)
-3. Extract key terms into standalone subheadings
+3. Extract key terms into standalone subheadings/subheaders
 4. Break down long paragraphs into smaller bullet points/numbered lists
-5. Add callouts/visual cues/section dividers/footnotes to improve readability or aesthetics
+5. Add callouts/visual cues or breaks/section dividers/footnotes to improve readability or aesthetics
 
 BOUNDARIES:
 - Do not access S3.

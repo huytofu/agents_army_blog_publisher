@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from blog_manager.schemas import ExpandedPost, LocalArtifact
+from blog_manager.schemas import ExpandedPost, LocalArtifact, SupportingImage
 from blog_manager.services.local_artifact_service import LocalArtifactService
 
 
@@ -14,3 +14,10 @@ class ImageGenerationTool:
 
     async def create_cover_jpg(self, post: ExpandedPost) -> LocalArtifact:
         return await self.artifact_service.create_cover_jpg(post)
+
+    async def create_supporting_jpg(
+        self,
+        post: ExpandedPost,
+        supporting_image: SupportingImage,
+    ) -> LocalArtifact:
+        return await self.artifact_service.create_supporting_jpg(post, supporting_image)

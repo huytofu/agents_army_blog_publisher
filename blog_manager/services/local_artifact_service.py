@@ -23,7 +23,7 @@ from blog_manager.constants import (
     POST_HTML_CONTENT_TYPE,
     POST_HTML_FILENAME,
 )
-from blog_manager.schemas import ExpandedPost, LocalArtifact
+from blog_manager.schemas import ExpandedPost, LocalArtifact, SupportingImage
 from blog_manager.services.idea_parser import slugify
 
 try:
@@ -84,11 +84,14 @@ class ConfiguredImageProvider:
 
         api_key = str(self.config.get("API_KEY") or "").strip()
         client = Together(api_key=api_key) if api_key else Together()
-        response = client.images.generate(
-            prompt=prompt,
-            model=model,
-            response_format="base64"
-        )
+        try:
+            response = client.images.generate(
+                prompt=prompt,
+                model=model,
+                response_format="base64",
+            )
+        except TypeError:
+            response = client.images.generate(prompt=prompt, model=model)
         data_item = _first_response_item(response)
 
         image_bytes = _image_bytes_from_b64(data_item)
@@ -161,6 +164,34 @@ class LocalArtifactService:
             metadata={"slug": slug, "artifact_type": "cover_image"},
         )
 
+    async def create_supporting_jpg(
+        self,
+        post: ExpandedPost,
+        supporting_image: SupportingImage,
+    ) -> LocalArtifact:
+        """Generate and write one local supporting JPEG image under the post slug."""
+        slug = _validate_slug(post.slug)
+        filename = _validate_supporting_image_filename(supporting_image.filename)
+        output_path = self._post_dir(slug) / filename
+        image_bytes = await self.image_provider.generate_jpeg(
+            prompt=supporting_image.prompt,
+            width=IMAGE_CONFIG["WIDTH"],
+            height=IMAGE_CONFIG["HEIGHT"],
+        )
+        _validate_jpeg(image_bytes)
+        _write_bytes(output_path, image_bytes)
+        return LocalArtifact(
+            local_path=str(output_path),
+            relative_key=f"blog/{slug}/{filename}",
+            content_type=COVER_IMAGE_CONTENT_TYPE,
+            metadata={
+                "slug": slug,
+                "artifact_type": "supporting_image",
+                "filename": filename,
+                "alt_text": supporting_image.alt_text,
+            },
+        )
+
     def clear_post_artifacts(self, slug: str) -> None:
         """Delete all local artifacts for one post slug.
 
@@ -227,7 +258,7 @@ def render_article_html(post: ExpandedPost) -> str:
     excerpt = html.escape(post.excerpt)
     seo_title = html.escape(post.seo_title or post.title)
     seo_description = html.escape(post.seo_description or post.excerpt)
-    body = markdown_to_html(post.body_markdown)
+    body = markdown_to_html(post.body_markdown, supporting_images=post.supporting_images)
     cover_path = html.escape(f"cover.jpg")
 
     return f"""<!DOCTYPE html>
@@ -264,10 +295,17 @@ def render_article_html(post: ExpandedPost) -> str:
 """
 
 
-def markdown_to_html(markdown: str) -> str:
+def markdown_to_html(
+    markdown: str,
+    *,
+    supporting_images: list[SupportingImage] | None = None,
+) -> str:
     """Convert a conservative Markdown subset into static HTML."""
     blocks: list[str] = []
     list_items: list[str] = []
+    supporting_image_by_filename = {
+        image.filename: image for image in supporting_images or []
+    }
 
     def flush_list() -> None:
         if list_items:
@@ -278,6 +316,18 @@ def markdown_to_html(markdown: str) -> str:
         line = raw_line.strip()
         if not line:
             flush_list()
+            continue
+        placeholder_match = re.fullmatch(r"\{(image_\d{3}\.jpg)\}", line)
+        if placeholder_match and placeholder_match.group(1) in supporting_image_by_filename:
+            flush_list()
+            image = supporting_image_by_filename[placeholder_match.group(1)]
+            filename = html.escape(image.filename)
+            alt_text = html.escape(image.alt_text)
+            blocks.append(
+                '<figure class="supporting-figure">'
+                f'<img class="supporting-image" src="{filename}" alt="{alt_text}">'
+                "</figure>"
+            )
             continue
         if line.startswith("### "):
             flush_list()
@@ -344,6 +394,13 @@ def _validate_slug(slug: str) -> str:
     if safe_slug != slug:
         raise LocalArtifactError(f"Invalid post slug: {slug}")
     return safe_slug
+
+
+def _validate_supporting_image_filename(filename: str) -> str:
+    safe_filename = filename.strip()
+    if not re.fullmatch(r"image_\d{3}\.jpg", safe_filename):
+        raise LocalArtifactError(f"Invalid supporting image filename: {filename}")
+    return safe_filename
 
 
 def _validate_jpeg(image_bytes: bytes) -> None:

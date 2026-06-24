@@ -35,8 +35,9 @@ class FeedEntry:
     excerpt: str
     coverImage: str
     contentPath: str
+    supportingImages: list[dict[str, str]] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "slug": self.slug,
             "title": self.title,
@@ -44,6 +45,23 @@ class FeedEntry:
             "excerpt": self.excerpt,
             "coverImage": self.coverImage,
             "contentPath": self.contentPath,
+            "supportingImages": self.supportingImages,
+        }
+
+
+@dataclass(frozen=True)
+class SupportingImage:
+    """Structured supporting image requested by an expanded post."""
+
+    filename: str
+    prompt: str
+    alt_text: str
+
+    def to_feed_image(self, *, slug: str) -> dict[str, str]:
+        return {
+            "filename": self.filename,
+            "path": f"blog/{slug}/{self.filename}",
+            "altText": self.alt_text,
         }
 
 
@@ -60,6 +78,7 @@ class ExpandedPost:
     seo_title: str = ""
     seo_description: str = ""
     safety_notes: list[str] = field(default_factory=list)
+    supporting_images: list[SupportingImage] = field(default_factory=list)
 
     def to_feed_entry(self) -> FeedEntry:
         return FeedEntry(
@@ -69,6 +88,9 @@ class ExpandedPost:
             excerpt=self.excerpt,
             coverImage=f"blog/{self.slug}/cover.jpg",
             contentPath=f"blog/{self.slug}/index.html",
+            supportingImages=[
+                image.to_feed_image(slug=self.slug) for image in self.supporting_images
+            ],
         )
 
 
@@ -139,7 +161,7 @@ class ImageArtifactState:
 
     expanded_post: ExpandedPost
     instructions: str
-    artifact: LocalArtifact | None = None
+    artifacts: list[LocalArtifact] = field(default_factory=list)
     retry_count: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -153,6 +175,7 @@ class BlogGraphState:
     feed_entry: FeedEntry | None = None
     html_artifact: LocalArtifact | None = None
     image_artifact: LocalArtifact | None = None
+    image_artifacts: list[LocalArtifact] = field(default_factory=list)
     subagent_plan: list[AgentInvocation] = field(default_factory=list)
     main_decision: BlogPipelineDecision | None = None
     main_round: int = 0

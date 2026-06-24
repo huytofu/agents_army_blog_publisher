@@ -11,6 +11,7 @@ from blog_manager.schemas.blog import (
     HtmlArtifactState,
     ImageArtifactState,
     LocalArtifact,
+    SupportingImage,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "HtmlArtifactState",
     "ImageArtifactState",
     "LocalArtifact",
+    "SupportingImage",
 ]

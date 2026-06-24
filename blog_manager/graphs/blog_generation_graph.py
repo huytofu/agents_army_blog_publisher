@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+import json
 import logging
+import re
 from typing import Any, Callable
 
 from blog_manager.agents import (
@@ -125,8 +127,15 @@ class BlogGenerationWorkflow:
         if state.expanded_post is None:
             return _append_error(state, "Cannot generate artifacts without expanded content.")
 
+        placeholder_errors = _validate_supporting_image_placeholders(state.expanded_post)
+        if placeholder_errors:
+            return replace(state, errors=[*state.errors, *placeholder_errors])
+
         html_instructions = _instructions_for(state.subagent_plan, "html_subagent")
-        image_instructions = _instructions_for(state.subagent_plan, "image_subagent")
+        image_instructions = _build_image_instructions(
+            state.expanded_post,
+            _instructions_for(state.subagent_plan, "image_subagent"),
+        )
 
         html_state = HtmlArtifactState(
             expanded_post=state.expanded_post,
@@ -146,7 +155,8 @@ class BlogGenerationWorkflow:
         return replace(
             state,
             html_artifact=html_result.artifact,
-            image_artifact=image_result.artifact,
+            image_artifact=image_result.artifacts[0] if image_result.artifacts else None,
+            image_artifacts=image_result.artifacts,
             html_retry_count=html_result.retry_count,
             image_retry_count=image_result.retry_count,
             artifact_round=state.artifact_round + 1,
@@ -190,22 +200,26 @@ class BlogGenerationWorkflow:
         current = state
         while current.retry_count <= max_retries:
             try:
-                artifact = await self.image_agent.create_image_artifact(
+                artifact_result = await self.image_agent.create_image_artifact(
                     current.expanded_post,
                     instructions=current.instructions,
                     prior_errors=current.errors,
                 )
-                errors = self.artifact_service.validate_artifact(
-                    artifact,
-                    slug=current.expanded_post.slug,
-                    filename=COVER_IMAGE_FILENAME,
-                    content_type=COVER_IMAGE_CONTENT_TYPE,
+                artifacts = (
+                    artifact_result
+                    if isinstance(artifact_result, list)
+                    else [artifact_result]
+                )
+                errors = _validate_image_artifacts(
+                    self.artifact_service,
+                    artifacts,
+                    current.expanded_post,
                 )
                 if not errors:
-                    return replace(current, artifact=artifact, errors=[])
+                    return replace(current, artifacts=artifacts, errors=[])
                 current = replace(
                     current,
-                    artifact=artifact,
+                    artifacts=artifacts,
                     retry_count=current.retry_count + 1,
                     errors=errors,
                 )
@@ -230,11 +244,13 @@ class BlogGenerationWorkflow:
             filename=POST_HTML_FILENAME,
             content_type=POST_HTML_CONTENT_TYPE,
         )
-        image_errors = self.artifact_service.validate_artifact(
-            state.image_artifact,
-            slug=state.expanded_post.slug,
-            filename=COVER_IMAGE_FILENAME,
-            content_type=COVER_IMAGE_CONTENT_TYPE,
+        image_artifacts = state.image_artifacts or (
+            [state.image_artifact] if state.image_artifact else []
+        )
+        image_errors = _validate_image_artifacts(
+            self.artifact_service,
+            image_artifacts,
+            state.expanded_post,
         )
         errors = [*html_errors, *image_errors]
         if errors:
@@ -246,7 +262,7 @@ class BlogGenerationWorkflow:
             logger.info("Dry run enabled; skipping posts feed update.")
             return state
         self._require_s3_store()
-        if not state.publish_ready or state.feed_entry is None:
+        if not state.publish_ready or state.feed_entry is None or state.errors:
             return _append_error(state, "Feed update skipped: publish inputs are not ready.")
         self.s3_store.append_feed_entry(state.feed_entry)
         return state
@@ -256,10 +272,11 @@ class BlogGenerationWorkflow:
             logger.info("Dry run enabled; skipping local artifact uploads.")
             return state
         self._require_s3_store()
-        if state.html_artifact is None or state.image_artifact is None:
+        if state.html_artifact is None or not state.image_artifacts:
             return _append_error(state, "Asset upload skipped: artifacts are missing.")
         self.s3_store.upload_local_artifact(state.html_artifact)
-        self.s3_store.upload_local_artifact(state.image_artifact)
+        for artifact in state.image_artifacts:
+            self.s3_store.upload_local_artifact(artifact)
         return state
 
     async def mark_processed(self, state: BlogGraphState) -> BlogGraphState:
@@ -356,12 +373,12 @@ def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) 
         "validate_publish_inputs",
         route_publish_validation,
         {
-            "publish": "update_feed",
+            "publish": "upload_assets",
             "fail": "fail",
         },
     )
-    graph.add_edge("update_feed", "upload_assets")
-    graph.add_edge("upload_assets", "mark_processed")
+    graph.add_edge("upload_assets", "update_feed")
+    graph.add_edge("update_feed", "mark_processed")
     graph.add_edge("mark_processed", "cleanup_local")
     graph.add_edge("cleanup_local", END)
     graph.add_edge("fail", END)
@@ -436,11 +453,11 @@ def _default_subagent_plan() -> list[AgentInvocation]:
         ),
         AgentInvocation(
             name="image_subagent",
-            purpose="Enhance the visual brief and create a local JPEG cover image.",
+            purpose="Enhance visual briefs and create local JPEG cover and supporting images.",
             instructions=(
-                "Turn the high-level image_prompt into a production-quality cover prompt with "
-                "composition, mood, palette, and safety constraints, then create cover.jpg under "
-                "the post slug directory."
+                "Turn the high-level cover and supporting image prompts into production-quality "
+                "JPEG prompts with composition, mood, palette, and safety constraints, then create "
+                "cover.jpg and each requested supporting image under the post slug directory."
             ),
         ),
     ]
@@ -451,3 +468,73 @@ def _instructions_for(plan: list[AgentInvocation], name: str) -> str:
         if item.name == name:
             return item.instructions
     return ""
+
+
+def _extract_supporting_image_placeholders(body_markdown: str) -> list[str]:
+    return re.findall(r"(?m)^\s*\{(image_\d{3}\.jpg)\}\s*$", body_markdown)
+
+
+def _validate_supporting_image_placeholders(post: Any) -> list[str]:
+    placeholders = _extract_supporting_image_placeholders(post.body_markdown)
+    filenames = [image.filename for image in post.supporting_images]
+    errors: list[str] = []
+    if sorted(placeholders) != sorted(filenames):
+        errors.append(
+            "Supporting image placeholders must match ExpandedPost.supporting_images filenames."
+        )
+    for filename in filenames:
+        if placeholders.count(filename) != 1:
+            errors.append(
+                f"Supporting image placeholder {{{filename}}} must appear exactly once."
+            )
+    return errors
+
+
+def _build_image_instructions(post: Any, base_instructions: str) -> str:
+    payload = {
+        "instructions": base_instructions,
+        "total_image_count": 1 + len(post.supporting_images),
+        "cover_image_instruction": post.image_prompt,
+        "supporting_image_instructions": [
+            {
+                "filename": image.filename,
+                "prompt": image.prompt,
+                "alt_text": image.alt_text,
+            }
+            for image in post.supporting_images
+        ],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def _validate_image_artifacts(
+    artifact_service: LocalArtifactService,
+    artifacts: list[Any],
+    post: Any,
+) -> list[str]:
+    errors: list[str] = []
+    expected_count = 1 + len(post.supporting_images)
+    if len(artifacts) != expected_count:
+        errors.append(
+            f"Image artifact count mismatch: expected {expected_count}, got {len(artifacts)}."
+        )
+    cover_artifact = artifacts[0] if artifacts else None
+    errors.extend(
+        artifact_service.validate_artifact(
+            cover_artifact,
+            slug=post.slug,
+            filename=COVER_IMAGE_FILENAME,
+            content_type=COVER_IMAGE_CONTENT_TYPE,
+        )
+    )
+    for index, supporting_image in enumerate(post.supporting_images, start=1):
+        artifact = artifacts[index] if index < len(artifacts) else None
+        errors.extend(
+            artifact_service.validate_artifact(
+                artifact,
+                slug=post.slug,
+                filename=supporting_image.filename,
+                content_type=COVER_IMAGE_CONTENT_TYPE,
+            )
+        )
+    return errors

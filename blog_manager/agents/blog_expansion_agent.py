@@ -13,6 +13,7 @@ from blog_manager.schemas import (
     BlogAgentResult,
     BlogIdea,
     ExpandedPost,
+    SupportingImage,
 )
 from blog_manager.services.idea_parser import slugify
 from blog_manager.services.llm_client import BlogLlmClient
@@ -31,6 +32,8 @@ CONTENT RESPONSIBILITIES:
 - Write publication-ready Markdown with a strong title, useful headings, short paragraphs, and a grounded closing reflection.
 - Provide a concise excerpt and SEO metadata that accurately summarize the post.
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
+- Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
+- For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
 - Include `safety_notes` for any claims or wording that should remain cautious.
 - Limit the post length to minimum of 700 words and maximum of 900 words.
 - Use plenty of emoticons at both mid and end of sentences 
@@ -51,6 +54,13 @@ Return ONLY valid JSON with exactly these top-level fields:
   "excerpt": "string",
   "body_markdown": "string",
   "image_prompt": "string",
+  "supporting_images": [
+    {
+      "filename": "image_001.jpg",
+      "prompt": "specific supporting image generation prompt",
+      "alt_text": "accessible image description"
+    }
+  ],
   "seo_title": "string",
   "seo_description": "string",
   "safety_notes": ["string"]
@@ -171,6 +181,14 @@ def _build_revision_user_prompt(
         "excerpt": post.excerpt,
         "body_markdown": post.body_markdown,
         "image_prompt": post.image_prompt,
+        "supporting_images": [
+            {
+                "filename": image.filename,
+                "prompt": image.prompt,
+                "alt_text": image.alt_text,
+            }
+            for image in post.supporting_images
+        ],
         "seo_title": post.seo_title,
         "seo_description": post.seo_description,
         "safety_notes": post.safety_notes,
@@ -219,6 +237,7 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
     excerpt = _required_string(payload, "excerpt")
     body_markdown = _required_string(payload, "body_markdown")
     image_prompt = _required_string(payload, "image_prompt")
+    supporting_images = _supporting_images_from_payload(payload.get("supporting_images"), body_markdown)
 
     return ExpandedPost(
         title=title,
@@ -230,6 +249,7 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
         seo_title=str(payload.get("seo_title") or title).strip(),
         seo_description=str(payload.get("seo_description") or excerpt).strip(),
         safety_notes=_string_list(payload.get("safety_notes")),
+        supporting_images=supporting_images,
     )
 
 
@@ -244,3 +264,38 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _supporting_images_from_payload(value: Any, body_markdown: str) -> list[SupportingImage]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        raise BlogExpansionError("supporting_images must be a list.")
+
+    images: list[SupportingImage] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise BlogExpansionError("supporting_images items must be objects.")
+        filename = str(item.get("filename") or "").strip()
+        prompt = str(item.get("prompt") or "").strip()
+        alt_text = str(item.get("alt_text") or "").strip()
+        if not re.fullmatch(r"image_\d{3}\.jpg", filename):
+            raise BlogExpansionError(
+                "supporting_images filenames must look like image_001.jpg."
+            )
+        if filename in seen:
+            raise BlogExpansionError(f"Duplicate supporting image filename: {filename}")
+        if not prompt:
+            raise BlogExpansionError(f"Supporting image {filename} is missing prompt.")
+        if not alt_text:
+            raise BlogExpansionError(f"Supporting image {filename} is missing alt_text.")
+        placeholder = "{" + filename + "}"
+        count = len(re.findall(rf"(?m)^\s*{re.escape(placeholder)}\s*$", body_markdown))
+        if count != 1:
+            raise BlogExpansionError(
+                f"Supporting image {filename} must appear exactly once as a full-line placeholder."
+            )
+        seen.add(filename)
+        images.append(SupportingImage(filename=filename, prompt=prompt, alt_text=alt_text))
+    return images
