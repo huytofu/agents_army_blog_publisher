@@ -272,6 +272,8 @@ def render_article_html(post: ExpandedPost) -> str:
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.7; color: #1f2937; margin: 0; background: #f9fafb; }}
         main {{ max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem 4rem; background: #ffffff; }}
         .cover {{ width: 100%; border-radius: 16px; margin: 1.5rem 0; object-fit: cover; }}
+        .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
+        .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
         p {{ margin: 1rem 0; }}
