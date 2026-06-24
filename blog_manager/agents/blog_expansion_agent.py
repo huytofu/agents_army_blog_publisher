@@ -20,6 +20,9 @@ from blog_manager.services.llm_client import BlogLlmClient
 
 logger = logging.getLogger(__name__)
 
+BLOG_CATEGORIES = ["Inner Work", "Habits", "Love", "Fitness", "Philosophy", "Unknown"]
+DEFAULT_CATEGORY = "Unknown"
+
 SYSTEM_PROMPT = """You are BlogExpansionAgent, the Entourage blog content specialist.
 
 ROLE:
@@ -34,6 +37,8 @@ CONTENT RESPONSIBILITIES:
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
 - Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
+- Choose a few concise `tags`/keywords that can help readers search for relevant articles.
+- Choose exactly one `category` from this fixed set: Inner Work|Habits|Love|Fitness|Philosophy|Unknown.
 - Include `safety_notes` for any claims or wording that should remain cautious.
 - Limit the post length to minimum of 700 words and maximum of 900 words.
 - Use plenty of emoticons at both mid and end of sentences 
@@ -61,6 +66,8 @@ Return ONLY valid JSON with exactly these top-level fields:
       "alt_text": "accessible image description"
     }
   ],
+  "tags": ["short keyword"],
+  "category": "Inner Work|Habits|Love|Fitness|Philosophy|Unknown",
   "seo_title": "string",
   "seo_description": "string",
   "safety_notes": ["string"]
@@ -189,6 +196,8 @@ def _build_revision_user_prompt(
             }
             for image in post.supporting_images
         ],
+        "tags": post.tags,
+        "category": post.category,
         "seo_title": post.seo_title,
         "seo_description": post.seo_description,
         "safety_notes": post.safety_notes,
@@ -238,6 +247,8 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
     body_markdown = _required_string(payload, "body_markdown")
     image_prompt = _required_string(payload, "image_prompt")
     supporting_images = _supporting_images_from_payload(payload.get("supporting_images"), body_markdown)
+    tags = _tags_from_payload(payload.get("tags"))
+    category = _category_from_payload(payload.get("category"))
 
     return ExpandedPost(
         title=title,
@@ -250,6 +261,8 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
         seo_description=str(payload.get("seo_description") or excerpt).strip(),
         safety_notes=_string_list(payload.get("safety_notes")),
         supporting_images=supporting_images,
+        tags=tags,
+        category=category,
     )
 
 
@@ -264,6 +277,31 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _tags_from_payload(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        tag = str(item).strip()
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+    return tags
+
+
+def _category_from_payload(value: Any) -> str:
+    category = str(value or "").strip()
+    if category in BLOG_CATEGORIES:
+        return category
+    return DEFAULT_CATEGORY
 
 
 def _supporting_images_from_payload(value: Any, body_markdown: str) -> list[SupportingImage]:

@@ -36,6 +36,8 @@ class FeedEntry:
     coverImage: str
     contentPath: str
     supportingImages: list[dict[str, str]] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    category: str = "Unknown"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +48,8 @@ class FeedEntry:
             "coverImage": self.coverImage,
             "contentPath": self.contentPath,
             "supportingImages": self.supportingImages,
+            "tags": self.tags,
+            "category": self.category,
         }
 
 
@@ -79,6 +83,8 @@ class ExpandedPost:
     seo_description: str = ""
     safety_notes: list[str] = field(default_factory=list)
     supporting_images: list[SupportingImage] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    category: str = "Unknown"
 
     def to_feed_entry(self) -> FeedEntry:
         return FeedEntry(
@@ -91,6 +97,8 @@ class ExpandedPost:
             supportingImages=[
                 image.to_feed_image(slug=self.slug) for image in self.supporting_images
             ],
+            tags=self.tags,
+            category=self.category,
         )
 
 
