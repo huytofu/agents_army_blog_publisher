@@ -104,10 +104,9 @@ class AgentInvocation:
 
 @dataclass(frozen=True)
 class BlogAgentResult:
-    """Result returned by the main expansion/orchestrator agent."""
+    """Content result returned by the blog expansion agent."""
 
     post: ExpandedPost
-    subagent_plan: list[AgentInvocation] = field(default_factory=list)
     raw_response: str = ""
 
 
@@ -119,6 +118,7 @@ class BlogPipelineDecision:
     reason: str
     content_revision_instruction: str = ""
     artifact_retry_instruction: str = ""
+    subagent_plan: list[AgentInvocation] = field(default_factory=list)
     raw_response: str = ""
 
 

@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from blog_manager.config import PIPELINE_LLM_CONFIG
-from blog_manager.schemas import BlogGraphState, BlogPipelineDecision
+from blog_manager.schemas import AgentInvocation, BlogGraphState, BlogPipelineDecision
 from blog_manager.services.llm_client import BlogLlmClient
 
 logger = logging.getLogger(__name__)
@@ -21,24 +21,25 @@ ROLE:
 - Return exactly one strict JSON decision.
 
 ORCHESTRATION RESPONSIBILITIES:
-- You are the only agent-level orchestrator. BlogExpansionAgent writes content; HTML/Image subagents create local artifacts.
-- At MainAgentThink, inspect the idea and decide whether to start content expansion, request content revision, or fail.
-- At MainAgentReviewContent, inspect the expanded post, safety notes, excerpt, image brief, and subagent handoff plan. Decide whether to revise content, generate artifacts, or fail.
+- You are the only agent-level orchestrator. BlogExpansionAgent writes/expands/revises content; HTML/Image subagents create local artifacts.
+- At MainAgentThink, inspect the idea and decide whether to start content expansion or fail.
+- At MainAgentReviewContent, inspect the expanded post, safety notes, excerpt, and image brief. Decide whether to revise content, generate artifacts, or fail.
+- At FinalizeSubagentsPlan, inspect the expanded post and default subagent plan. Return finalized HTML/Image subagent instructions for subsequent artifact generation, or fail.
 - At MainAgentReviewArtifacts, inspect local artifact descriptors and validation errors. Decide whether to retry artifact generation, publish, or fail.
 - Use `content_revision_instruction` only when choosing `revise_content`; make it specific enough for BlogExpansionAgent to revise content.
 - Use `artifact_retry_instruction` only when choosing `retry_artifacts`; make it specific enough for the graph/subagents to address the artifact issue.
+- Use `subagent_plan` only at FinalizeSubagentsPlan; include complete instructions for both `html_subagent` and `image_subagent`.
 - Use `fail` with a concise reason when the workflow cannot safely continue (publisher valiation errors/graph errors/artifact generation retries exhausted or repeatedly failed)
 
 BOUNDARIES:
-- Do not write blog content yourself; when content must be expanded or revised,
-output decision to expand_content or revise_content with instructions towards BlogExpansionAgent.
-- Do not render HTML, generate images, or invoke subagents/tools.
+- Do not write/expand/revise blog content yourself. Instead, output decision with instructions towards BlogExpansionAgent.
+- Do not render HTML, generate images, or invoke tools yourself. Instead, output decision with instructions towards HTML/Image subagents.
 - Do not perform S3 operations. Publisher graph nodes own S3 writes.
 - Do not return chain-of-thought. Return a concise reason only.
 
 ALLOWED DECISIONS:
 - expand_content: use when no expanded post exists yet.
-- revise_content: use when post needs content revision due to NSFW issues/hate speech/extreme religious or political views/etc.
+- revise_content: use when post has NSFW issues/hate speech/extreme religious or political views/etc.
 - generate_artifacts: use when content is good enough and local HTML/image artifacts should be produced.
 - retry_artifacts: use when artifacts failed validation but retry budget remains.
 - publish: use only when content and artifacts are valid.
@@ -49,12 +50,16 @@ PUBLISHING RULES:
 - Never choose publish just because content is good; artifact generation and validation must have happened first.
 
 OUTPUT:
-Return ONLY valid JSON with this schema:
+Return ONLY valid JSON with this schema (subagent_plan is optional except for at FinalizeSubagentsPlan):
 {
   "decision": "expand_content|revise_content|generate_artifacts|retry_artifacts|publish|fail",
   "reason": "short user-safe explanation",
   "content_revision_instruction": "string, optional",
-  "artifact_retry_instruction": "string, optional"
+  "artifact_retry_instruction": "string, optional",
+  "subagent_plan": [
+    {"name": "html_subagent", "purpose": "string", "instructions": "string"},
+    {"name": "image_subagent", "purpose": "string", "instructions": "string"}
+  ]
 }
 """
 
@@ -84,6 +89,13 @@ class BlogPipelineAgent:
     async def review_content(self, state: BlogGraphState) -> BlogPipelineDecision:
         return await self._decide(build_content_review_observation(state))
 
+    async def finalize_subagents_plan(
+        self,
+        state: BlogGraphState,
+        default_plan: list[AgentInvocation],
+    ) -> BlogPipelineDecision:
+        return await self._decide(build_finalize_subagents_observation(state, default_plan))
+
     async def review_artifacts(self, state: BlogGraphState) -> BlogPipelineDecision:
         return await self._decide(build_artifact_review_observation(state))
 
@@ -106,7 +118,7 @@ def build_think_observation(state: BlogGraphState) -> str:
             "has_expanded_post": state.expanded_post is not None,
             "main_round": state.main_round,
             "errors": state.errors,
-            "allowed_decisions": ["expand_content", "revise_content", "fail"],
+            "allowed_decisions": ["expand_content", "fail"],
         },
     )
 
@@ -117,10 +129,26 @@ def build_content_review_observation(state: BlogGraphState) -> str:
         "MainAgentReviewContent",
         {
             "expanded_post": post.__dict__ if post else None,
-            "subagent_plan": [item.__dict__ for item in state.subagent_plan],
             "main_round": state.main_round,
             "errors": state.errors,
             "allowed_decisions": ["revise_content", "generate_artifacts", "fail"],
+        },
+    )
+
+
+def build_finalize_subagents_observation(
+    state: BlogGraphState,
+    default_plan: list[AgentInvocation],
+) -> str:
+    post = state.expanded_post
+    return _json_observation(
+        "FinalizeSubagentsPlan",
+        {
+            "expanded_post": post.__dict__ if post else None,
+            "default_subagent_plan": [item.__dict__ for item in default_plan],
+            "main_round": state.main_round,
+            "errors": state.errors,
+            "allowed_decisions": ["generate_artifacts", "fail"],
         },
     )
 
@@ -158,8 +186,33 @@ def parse_pipeline_decision(raw: str) -> BlogPipelineDecision:
             payload.get("content_revision_instruction") or ""
         ).strip(),
         artifact_retry_instruction=str(payload.get("artifact_retry_instruction") or "").strip(),
+        subagent_plan=_subagent_plan_from_payload(payload),
         raw_response=raw,
     )
+
+
+def _subagent_plan_from_payload(payload: dict[str, Any]) -> list[AgentInvocation]:
+    raw_plan = payload.get("subagent_plan")
+    if not isinstance(raw_plan, list):
+        return []
+
+    plan: list[AgentInvocation] = []
+    for item in raw_plan:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        purpose = str(item.get("purpose") or "").strip()
+        instructions = str(item.get("instructions") or "").strip()
+        if not name or not purpose or not instructions:
+            continue
+        plan.append(
+            AgentInvocation(
+                name=name,
+                purpose=purpose,
+                instructions=instructions,
+            )
+        )
+    return plan
 
 
 def _json_observation(node_name: str, payload: dict[str, Any]) -> str:

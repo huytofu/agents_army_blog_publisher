@@ -10,7 +10,6 @@ from typing import Any
 
 from blog_manager.config import EXPANSION_LLM_CONFIG
 from blog_manager.schemas import (
-    AgentInvocation,
     BlogAgentResult,
     BlogIdea,
     ExpandedPost,
@@ -41,7 +40,7 @@ BOUNDARIES:
 - Do not decide workflow routing, publishing, retries, or failure handling.
 - Do not perform S3 operations.
 - Do not render HTML or generate images.
-- Do not manage subagents. If `subagent_plan` is requested by the schema, keep it to concise content handoff briefs only.
+- Do not manage subagents or produce subagent handoff plans.
 
 OUTPUT:
 Return ONLY valid JSON with exactly these top-level fields:
@@ -54,11 +53,7 @@ Return ONLY valid JSON with exactly these top-level fields:
   "image_prompt": "string",
   "seo_title": "string",
   "seo_description": "string",
-  "safety_notes": ["string"],
-  "subagent_plan": [
-    {"name": "html_subagent", "purpose": "string", "instructions": "string"},
-    {"name": "image_subagent", "purpose": "string", "instructions": "string"}
-  ]
+  "safety_notes": ["string"]
 }
 """
 
@@ -68,7 +63,7 @@ class BlogExpansionError(RuntimeError):
 
 
 class BlogExpansionAgent:
-    """Content agent that expands ideas and returns artifact briefs."""
+    """Content agent that expands ideas and revises expanded posts."""
 
     def __init__(self, llm_client: BlogLlmClient | None = None):
         self.llm_client = llm_client or BlogLlmClient(config=EXPANSION_LLM_CONFIG)
@@ -76,17 +71,14 @@ class BlogExpansionAgent:
     async def expand_idea(
         self,
         idea: BlogIdea,
-        *,
-        revision_instruction: str = "",
     ) -> BlogAgentResult:
-        """Expand one parsed idea into a structured post plus subagent plan."""
-        messages = self._build_messages(idea, revision_instruction=revision_instruction)
+        """Expand one parsed idea into a structured post."""
+        messages = self._build_messages(_build_expansion_user_prompt(idea))
         raw_response = await self.llm_client.chat_completion(messages)
 
         try:
             parsed = _parse_llm_json(raw_response)
             post = _expanded_post_from_payload(parsed)
-            subagent_plan = _subagent_plan_from_payload(parsed)
         except BlogExpansionError:
             logger.warning("Main expansion output invalid; retrying with repair prompt")
             repaired_response = await self.llm_client.chat_completion(
@@ -101,41 +93,61 @@ class BlogExpansionAgent:
             )
             parsed = _parse_llm_json(repaired_response)
             post = _expanded_post_from_payload(parsed)
-            subagent_plan = _subagent_plan_from_payload(parsed)
             raw_response = repaired_response
 
         return BlogAgentResult(
             post=post,
-            subagent_plan=subagent_plan,
             raw_response=raw_response,
         )
 
+    async def revise_content(
+        self,
+        post: ExpandedPost,
+        *,
+        revision_instruction: str,
+    ) -> BlogAgentResult:
+        """Revise the current expanded post using supervisor instructions."""
+        messages = self._build_messages(
+            _build_revision_user_prompt(
+                post,
+                revision_instruction=revision_instruction,
+            )
+        )
+        raw_response = await self.llm_client.chat_completion(messages)
+
+        try:
+            parsed = _parse_llm_json(raw_response)
+            revised_post = _expanded_post_from_payload(parsed)
+        except BlogExpansionError:
+            logger.warning("Content revision output invalid; retrying with repair prompt")
+            repaired_response = await self.llm_client.chat_completion(
+                [
+                    *messages,
+                    {"role": "assistant", "content": raw_response},
+                    {
+                        "role": "user",
+                        "content": "Repair the previous output. Return only valid JSON matching the required schema.",
+                    },
+                ]
+            )
+            parsed = _parse_llm_json(repaired_response)
+            revised_post = _expanded_post_from_payload(parsed)
+            raw_response = repaired_response
+
+        return BlogAgentResult(post=revised_post, raw_response=raw_response)
+
     def _build_messages(
         self,
-        idea: BlogIdea,
-        *,
-        revision_instruction: str = "",
+        user_prompt: str,
     ) -> list[dict[str, str]]:
         return [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": _build_user_prompt(
-                    idea,
-                    revision_instruction=revision_instruction,
-                ),
-            },
+            {"role": "user", "content": user_prompt},
         ]
 
 
-def _build_user_prompt(idea: BlogIdea, *, revision_instruction: str = "") -> str:
+def _build_expansion_user_prompt(idea: BlogIdea) -> str:
     frontmatter = json.dumps(idea.frontmatter, indent=2, ensure_ascii=False)
-    revision_section = ""
-    if revision_instruction.strip():
-        revision_section = f"""
-## Revision instruction
-{revision_instruction.strip()}
-"""
     return f"""## Idea source
 S3 key: {idea.key}
 
@@ -144,7 +156,30 @@ S3 key: {idea.key}
 
 ## Rough content
 {idea.body.strip()}
-{revision_section}
+"""
+
+
+def _build_revision_user_prompt(
+    post: ExpandedPost,
+    *,
+    revision_instruction: str,
+) -> str:
+    post_payload = {
+        "title": post.title,
+        "slug": post.slug,
+        "date": post.date,
+        "excerpt": post.excerpt,
+        "body_markdown": post.body_markdown,
+        "image_prompt": post.image_prompt,
+        "seo_title": post.seo_title,
+        "seo_description": post.seo_description,
+        "safety_notes": post.safety_notes,
+    }
+    return f"""## Current expanded post
+{json.dumps(post_payload, indent=2, ensure_ascii=False)}
+
+## Revision instruction
+{revision_instruction.strip()}
 """
 
 
@@ -196,54 +231,6 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
         seo_description=str(payload.get("seo_description") or excerpt).strip(),
         safety_notes=_string_list(payload.get("safety_notes")),
     )
-
-
-def _subagent_plan_from_payload(payload: dict[str, Any]) -> list[AgentInvocation]:
-    raw_plan = payload.get("subagent_plan")
-    if not isinstance(raw_plan, list):
-        return _default_subagent_plan()
-
-    plan: list[AgentInvocation] = []
-    for item in raw_plan:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        purpose = str(item.get("purpose") or "").strip()
-        instructions = str(item.get("instructions") or "").strip()
-        if not name or not purpose or not instructions:
-            continue
-        plan.append(
-            AgentInvocation(
-                name=name,
-                purpose=purpose,
-                instructions=instructions,
-            )
-        )
-
-    return plan or _default_subagent_plan()
-
-
-def _default_subagent_plan() -> list[AgentInvocation]:
-    return [
-        AgentInvocation(
-            name="html_subagent",
-            purpose="Polish presentation and convert the expanded post into a local static HTML artifact.",
-            instructions=(
-                "Review the expanded post for web readability, organize the Markdown for clean "
-                "section flow when useful, choose a calm Entourage presentation treatment, and "
-                "create index.html under the post slug directory."
-            ),
-        ),
-        AgentInvocation(
-            name="image_subagent",
-            purpose="Enhance the visual brief and create a local JPEG cover image.",
-            instructions=(
-                "Turn the high-level image_prompt into a production-quality cover prompt with "
-                "composition, mood, palette, and safety constraints, then create cover.jpg under "
-                "the post slug directory."
-            ),
-        ),
-    ]
 
 
 def _required_string(payload: dict[str, Any], key: str) -> str:

@@ -84,23 +84,42 @@ class BlogGenerationWorkflow:
     async def expand_content(self, state: BlogGraphState) -> BlogGraphState:
         if state.idea is None:
             return _append_error(state, "Cannot expand content without an idea.")
+        result = await self.expansion_agent.expand_idea(state.idea)
+        return replace(
+            state,
+            expanded_post=result.post,
+            feed_entry=result.post.to_feed_entry(),
+        )
+
+    async def revise_content(self, state: BlogGraphState) -> BlogGraphState:
+        if state.expanded_post is None:
+            return _append_error(state, "Cannot revise content without expanded content.")
         revision_instruction = ""
         if state.main_decision:
             revision_instruction = state.main_decision.content_revision_instruction
-        result = await self.expansion_agent.expand_idea(
-            state.idea,
+        if not revision_instruction:
+            return _append_error(state, "Cannot revise content without revision instructions.")
+        result = await self.expansion_agent.revise_content(
+            state.expanded_post,
             revision_instruction=revision_instruction,
         )
         return replace(
             state,
             expanded_post=result.post,
             feed_entry=result.post.to_feed_entry(),
-            subagent_plan=result.subagent_plan,
         )
 
     async def main_review_content(self, state: BlogGraphState) -> BlogGraphState:
         decision = await self.pipeline_agent.review_content(state)
         return _with_decision(replace(state, main_round=state.main_round + 1), decision)
+
+    async def finalize_subagents_plan(self, state: BlogGraphState) -> BlogGraphState:
+        if state.expanded_post is None:
+            return _append_error(state, "Cannot finalize subagent plan without expanded content.")
+        default_plan = _default_subagent_plan()
+        decision = await self.pipeline_agent.finalize_subagents_plan(state, default_plan)
+        plan = decision.subagent_plan or default_plan
+        return _with_decision(replace(state, subagent_plan=plan), decision)
 
     async def run_artifact_branches(self, state: BlogGraphState) -> BlogGraphState:
         if state.expanded_post is None:
@@ -282,7 +301,9 @@ def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) 
     graph.add_node("load_idea", wf.load_idea)
     graph.add_node("main_think", wf.main_think)
     graph.add_node("expand_content", wf.expand_content)
+    graph.add_node("revise_content", wf.revise_content)
     graph.add_node("main_review_content", wf.main_review_content)
+    graph.add_node("finalize_subagents_plan", wf.finalize_subagents_plan)
     graph.add_node("run_artifact_branches", wf.run_artifact_branches)
     graph.add_node("main_review_artifacts", wf.main_review_artifacts)
     graph.add_node("validate_publish_inputs", wf.validate_publish_inputs)
@@ -299,7 +320,6 @@ def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) 
         route_main_think,
         {
             "expand_content": "expand_content",
-            "revise_content": "expand_content",
             "fail": "fail",
         },
     )
@@ -308,7 +328,16 @@ def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) 
         "main_review_content",
         route_content_review,
         {
-            "revise_content": "expand_content",
+            "revise_content": "revise_content",
+            "generate_artifacts": "finalize_subagents_plan",
+            "fail": "fail",
+        },
+    )
+    graph.add_edge("revise_content", "main_review_content")
+    graph.add_conditional_edges(
+        "finalize_subagents_plan",
+        route_finalize_subagents_plan,
+        {
             "generate_artifacts": "run_artifact_branches",
             "fail": "fail",
         },
@@ -344,11 +373,15 @@ def initial_state(idea: BlogIdea) -> BlogGraphState:
 
 
 def route_main_think(state: BlogGraphState) -> str:
-    return _decision_or_fail(state, {"expand_content", "revise_content", "fail"})
+    return _decision_or_fail(state, {"expand_content", "fail"})
 
 
 def route_content_review(state: BlogGraphState) -> str:
     return _decision_or_fail(state, {"revise_content", "generate_artifacts", "fail"})
+
+
+def route_finalize_subagents_plan(state: BlogGraphState) -> str:
+    return _decision_or_fail(state, {"generate_artifacts", "fail"})
 
 
 def route_artifact_review(state: BlogGraphState) -> str:
@@ -388,6 +421,29 @@ def _append_error(state: BlogGraphState, error: str) -> BlogGraphState:
 
 def _fail_decision(reason: str) -> BlogPipelineDecision:
     return BlogPipelineDecision(decision="fail", reason=reason)
+
+
+def _default_subagent_plan() -> list[AgentInvocation]:
+    return [
+        AgentInvocation(
+            name="html_subagent",
+            purpose="Polish presentation and convert the expanded post into a local static HTML artifact.",
+            instructions=(
+                "Review the expanded post for web readability, organize the Markdown for clean "
+                "section flow when useful, choose a calm Entourage presentation treatment, and "
+                "create index.html under the post slug directory."
+            ),
+        ),
+        AgentInvocation(
+            name="image_subagent",
+            purpose="Enhance the visual brief and create a local JPEG cover image.",
+            instructions=(
+                "Turn the high-level image_prompt into a production-quality cover prompt with "
+                "composition, mood, palette, and safety constraints, then create cover.jpg under "
+                "the post slug directory."
+            ),
+        ),
+    ]
 
 
 def _instructions_for(plan: list[AgentInvocation], name: str) -> str:
