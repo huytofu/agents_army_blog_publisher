@@ -15,7 +15,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 from urllib.request import Request, urlopen
 
 from blog_manager.config import BLOG_STORAGE_CONFIG, IMAGE_CONFIG
@@ -262,6 +262,9 @@ def render_article_html(post: ExpandedPost) -> str:
     seo_description = html.escape(post.seo_description or post.excerpt)
     body = markdown_to_html(post.body_markdown, supporting_images=post.supporting_images)
     cover_path = html.escape(f"cover.jpg")
+    article_url = html.escape(_article_url(post))
+    cover_url = html.escape(_cover_image_url(post))
+    rss_url = html.escape(_rss_feed_url())
     article_tags = _article_tags(post)
     article_meta_tags = "\n".join(
         f'    <meta property="article:tag" content="{html.escape(tag)}">'
@@ -279,16 +282,18 @@ def render_article_html(post: ExpandedPost) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{seo_title}</title>
     <meta name="description" content="{seo_description}">
+    <link rel="canonical" href="{article_url}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{seo_title}">
     <meta property="og:description" content="{seo_description}">
-    <meta property="og:image" content="{cover_path}">
+    <meta property="og:url" content="{article_url}">
+    <meta property="og:image" content="{cover_url}">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="{seo_title}">
     <meta name="twitter:description" content="{seo_description}">
-    <meta name="twitter:image" content="{cover_path}">
+    <meta name="twitter:image" content="{cover_url}">
     <meta property="article:published_time" content="{html.escape(post.date)}">
-    <link rel="alternate" type="application/rss+xml" title="ENTOURAGE Blog" href="../rss.xml">
+    <link rel="alternate" type="application/rss+xml" title="ENTOURAGE Blog" href="{rss_url}">
 {article_meta_tags}
 {structured_data}
     <style>
@@ -422,8 +427,8 @@ def _blog_posting_schema(post: ExpandedPost) -> dict[str, object]:
         "headline": post.seo_title or post.title,
         "description": post.seo_description or post.excerpt,
         "datePublished": post.date,
-        "image": f"blog/{post.slug}/cover.jpg",
-        "mainEntityOfPage": f"blog/{post.slug}/index.html",
+        "image": _cover_image_url(post),
+        "mainEntityOfPage": _article_url(post),
         "keywords": keywords,
         "articleSection": post.category,
     }
@@ -494,7 +499,7 @@ def _render_growth_sections(post: ExpandedPost) -> str:
     title = html.escape(post.title)
     slug = html.escape(post.slug)
     subject = quote(post.title)
-    article_path = quote(f"https://www.entourage-ai.life/blog/{post.slug}/index.html", safe=":/")
+    article_path = quote(_article_url(post), safe=":/")
     return f"""
         <section class="subscribe-cta">
             <h2>Get the weekly highlight</h2>
@@ -525,6 +530,26 @@ def _render_growth_sections(post: ExpandedPost) -> str:
             <p>Which sentence from “{title}” feels useful enough to test this week?</p>
         </section>
     """
+
+
+def _site_url() -> str:
+    return str(BLOG_STORAGE_CONFIG.get("SITE_URL") or "https://www.entourage-ai.life").rstrip("/") + "/"
+
+
+def _absolute_url(path: str) -> str:
+    return urljoin(_site_url(), path.lstrip("/"))
+
+
+def _article_url(post: ExpandedPost) -> str:
+    return _absolute_url(f"blog/{post.slug}/index.html")
+
+
+def _cover_image_url(post: ExpandedPost) -> str:
+    return _absolute_url(f"blog/{post.slug}/{COVER_IMAGE_FILENAME}")
+
+
+def _rss_feed_url() -> str:
+    return _absolute_url(str(BLOG_STORAGE_CONFIG.get("RSS_KEY") or "blog/rss.xml"))
 
 
 def _first_response_item(response: object) -> object | None:

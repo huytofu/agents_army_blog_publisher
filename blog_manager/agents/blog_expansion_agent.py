@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from datetime import date
-from typing import Any
+from typing import Any, NamedTuple
 
 from blog_manager.config import EXPANSION_LLM_CONFIG
 from blog_manager.schemas import (
@@ -42,6 +43,82 @@ SEARCH_INTENTS = [
     "unknown",
 ]
 DEFAULT_SEARCH_INTENT = "unknown"
+
+
+class StyleOption(NamedTuple):
+    """Short runtime prompt fragment for article variety."""
+
+    name: str
+    instruction: str
+
+
+class BlogStyleProfile(NamedTuple):
+    """Selected voice notes for one expansion request."""
+
+    persona: StyleOption
+    rhetorical_shape: StyleOption
+    opening_constraint: StyleOption
+
+
+_STYLE_RANDOM = random.SystemRandom()
+
+PERSONAS = [
+    StyleOption(
+        "practical coach",
+        "Be clear, grounded, and action-oriented with gentle encouragement.",
+    ),
+    StyleOption(
+        "reflective philosopher",
+        "Use thoughtful meaning-making without drifting into abstraction.",
+    ),
+    StyleOption(
+        "playful friend",
+        "Add light humor and warmth while staying emotionally safe.",
+    ),
+    StyleOption(
+        "lyrical guide",
+        "Use vivid but simple imagery, then return quickly to practical value.",
+    ),
+    StyleOption(
+        "direct field guide",
+        "Be concise, concrete, and useful; avoid ornamental phrasing.",
+    ),
+]
+
+RHETORICAL_SHAPES = [
+    StyleOption(
+        "story-first",
+        "Start from a relatable moment, then draw out practical lessons.",
+    ),
+    StyleOption(
+        "question-led",
+        "Use reader questions to organize sections and build momentum.",
+    ),
+    StyleOption(
+        "myth-busting",
+        "Name a common misconception, then replace it with grounded guidance.",
+    ),
+    StyleOption(
+        "list-guided",
+        "Use a clear framework with titled steps or principles.",
+    ),
+    StyleOption(
+        "reflective essay",
+        "Move through observation, insight, and a grounded closing reflection.",
+    ),
+    StyleOption(
+        "practical framework",
+        "Define the problem, offer a simple model, then show how to apply it.",
+    ),
+]
+
+OPENING_CONSTRAINTS = [
+    StyleOption("concrete scene", "Begin with a concrete everyday scene."),
+    StyleOption("common misconception", "Begin by correcting a common misconception."),
+    StyleOption("direct definition", "Begin with a direct, useful definition."),
+    StyleOption("tiny story", "Begin with a tiny story in 2 to 3 sentences."),
+    StyleOption("practical promise", "Begin with a practical promise to the reader."),
+]
 
 SYSTEM_PROMPT = """You are BlogExpansionAgent, the Entourage blog content specialist.
 
@@ -130,7 +207,16 @@ class BlogExpansionAgent:
         idea: BlogIdea,
     ) -> BlogAgentResult:
         """Expand one parsed idea into a structured post."""
-        messages = self._build_messages(_build_expansion_user_prompt(idea))
+        style_profile = _select_style_profile()
+        logger.info(
+            "Selected blog expansion style persona=%s rhetorical_shape=%s opening=%s",
+            style_profile.persona.name,
+            style_profile.rhetorical_shape.name,
+            style_profile.opening_constraint.name,
+        )
+        messages = self._build_messages(
+            _build_expansion_user_prompt(idea, style_profile)
+        )
         raw_response = await self.llm_client.chat_completion(messages)
 
         try:
@@ -203,9 +289,33 @@ class BlogExpansionAgent:
         ]
 
 
-def _build_expansion_user_prompt(idea: BlogIdea) -> str:
+def _select_style_profile() -> BlogStyleProfile:
+    return BlogStyleProfile(
+        persona=_STYLE_RANDOM.choice(PERSONAS),
+        rhetorical_shape=_STYLE_RANDOM.choice(RHETORICAL_SHAPES),
+        opening_constraint=_STYLE_RANDOM.choice(OPENING_CONSTRAINTS),
+    )
+
+
+def _style_profile_prompt(style_profile: BlogStyleProfile) -> str:
+    return f"""## Runtime voice notes
+These are light style nudges only.
+Follow all system, safety, SEO, image, and JSON schema instructions first.
+- Persona: {style_profile.persona.name}. {style_profile.persona.instruction}
+- Shape: {style_profile.rhetorical_shape.name}. {style_profile.rhetorical_shape.instruction}
+- Opening: {style_profile.opening_constraint.name}. {style_profile.opening_constraint.instruction}
+"""
+
+
+def _build_expansion_user_prompt(
+    idea: BlogIdea,
+    style_profile: BlogStyleProfile,
+) -> str:
     frontmatter = json.dumps(idea.frontmatter, indent=2, ensure_ascii=False)
-    return f"""## Idea source
+    style_notes = _style_profile_prompt(style_profile)
+    return f"""{style_notes}
+
+## Idea source
 S3 key: {idea.key}
 
 ## Frontmatter
@@ -251,6 +361,9 @@ def _build_revision_user_prompt(
 
 ## Revision instruction
 {revision_instruction.strip()}
+
+Preserve the current article's voice, structure, and opening style.
+Change direction only if the revision instruction explicitly asks for it.
 """
 
 

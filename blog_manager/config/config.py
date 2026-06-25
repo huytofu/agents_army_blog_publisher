@@ -51,10 +51,10 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _list_env(name: str) -> list[str]:
+def _list_env(name: str, default: list[str] | None = None) -> list[str]:
     raw = os.getenv(name, "")
     if not raw.strip():
-        return []
+        return list(default or [])
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
@@ -86,6 +86,12 @@ BLOG_STORAGE_CONFIG = {
     ),
     "RSS_LANGUAGE": os.getenv("BLOG_RSS_LANGUAGE", "en"),
     "RSS_MAX_ENTRIES": _int_env("BLOG_RSS_MAX_ENTRIES", 20),
+    "SITEMAP_KEY": os.getenv("BLOG_SITEMAP_KEY", "sitemap.xml"),
+    "ROBOTS_KEY": os.getenv("BLOG_ROBOTS_KEY", "robots.txt"),
+    "STATIC_SITEMAP_PATHS": _list_env(
+        "BLOG_STATIC_SITEMAP_PATHS",
+        ["", "blogs.html", "features.html", "pricing.html", "privacy.html", "terms.html", "refund.html"],
+    ),
     "WEEKLY_HIGHLIGHT_KEY": os.getenv("BLOG_WEEKLY_HIGHLIGHT_KEY", "blog/weekly-highlight.json"),
     "LOCAL_WORK_ROOT": os.getenv("BLOG_LOCAL_WORK_ROOT", _local_work_root_default()),
     "DRY_RUN": _bool_env("BLOG_DRY_RUN", False),
