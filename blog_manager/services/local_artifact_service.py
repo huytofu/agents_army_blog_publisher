@@ -15,6 +15,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from blog_manager.config import BLOG_STORAGE_CONFIG, IMAGE_CONFIG
@@ -269,6 +270,7 @@ def render_article_html(post: ExpandedPost) -> str:
     structured_data = _structured_data_scripts(post)
     content_note = _render_safety_notes(post.safety_notes)
     references = _render_citation_suggestions(post.citation_suggestions)
+    growth_sections = _render_growth_sections(post)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -286,6 +288,7 @@ def render_article_html(post: ExpandedPost) -> str:
     <meta name="twitter:description" content="{seo_description}">
     <meta name="twitter:image" content="{cover_path}">
     <meta property="article:published_time" content="{html.escape(post.date)}">
+    <link rel="alternate" type="application/rss+xml" title="ENTOURAGE Blog" href="../rss.xml">
 {article_meta_tags}
 {structured_data}
     <style>
@@ -297,6 +300,9 @@ def render_article_html(post: ExpandedPost) -> str:
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
         .content-note {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
         .reference-list {{ background: #f3f4f6; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .subscribe-cta, .comments-section, .related-posts, .share-actions {{ background: #eef2ff; border-radius: 14px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .comments-section {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
+        .share-actions a {{ display: inline-block; margin-right: 0.75rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
         p {{ margin: 1rem 0; }}
         a {{ color: #4f46e5; }}
@@ -315,6 +321,7 @@ def render_article_html(post: ExpandedPost) -> str:
             {content_note}
             {references}
         </article>
+        {growth_sections}
     </main>
 </body>
 </html>
@@ -481,6 +488,43 @@ def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
         "</ul>"
         "</section>"
     )
+
+
+def _render_growth_sections(post: ExpandedPost) -> str:
+    title = html.escape(post.title)
+    slug = html.escape(post.slug)
+    subject = quote(post.title)
+    article_path = quote(f"https://www.entourage-ai.life/blog/{post.slug}/index.html", safe=":/")
+    return f"""
+        <section class="subscribe-cta">
+            <h2>Get the weekly highlight</h2>
+            <p>Get one weekly highlight, no spam. We send the strongest reflection from the ENTOURAGE blog each week.</p>
+            <form data-blog-api-placeholder="subscribe" action="#" method="post">
+                <label for="subscriber-email">Email address</label>
+                <input id="subscriber-email" name="email" type="email" placeholder="you@example.com" autocomplete="email">
+                <button type="submit">Subscribe</button>
+            </form>
+        </section>
+        <section id="comments" class="comments-section" data-blog-api-placeholder="comments" data-post-slug="{slug}">
+            <h2>Join the conversation</h2>
+            <p>What did this bring up for you? Sign in to leave a moderated comment once the blog API is connected.</p>
+            <div class="comments-list" aria-live="polite"></div>
+        </section>
+        <section class="related-posts" data-related-category="{html.escape(post.category)}" data-related-tags="{html.escape(','.join(post.tags))}">
+            <h2>Related reflections</h2>
+            <p>Related posts will be selected from the same category and tags in <code>blog/posts.json</code>.</p>
+        </section>
+        <section class="share-actions">
+            <h2>Share this post</h2>
+            <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
+            <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
+            <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
+        </section>
+        <section class="comments-section">
+            <h2>Reflection prompt</h2>
+            <p>Which sentence from “{title}” feels useful enough to test this week?</p>
+        </section>
+    """
 
 
 def _first_response_item(response: object) -> object | None:

@@ -77,6 +77,16 @@ BLOG_STORAGE_CONFIG = {
     "IDEAS_PREFIX": os.getenv("BLOG_IDEAS_PREFIX", DEFAULT_IDEAS_PREFIX),
     "FEED_KEY": os.getenv("BLOG_POSTS_FEED_KEY", DEFAULT_FEED_KEY),
     "POSTS_PREFIX": os.getenv("BLOG_POSTS_PREFIX", DEFAULT_POSTS_PREFIX),
+    "SITE_URL": os.getenv("BLOG_SITE_URL", "https://www.entourage-ai.life"),
+    "RSS_KEY": os.getenv("BLOG_RSS_KEY", "blog/rss.xml"),
+    "RSS_TITLE": os.getenv("BLOG_RSS_TITLE", "ENTOURAGE Blog"),
+    "RSS_DESCRIPTION": os.getenv(
+        "BLOG_RSS_DESCRIPTION",
+        "Stories, practices, and updates from the ENTOURAGE community.",
+    ),
+    "RSS_LANGUAGE": os.getenv("BLOG_RSS_LANGUAGE", "en"),
+    "RSS_MAX_ENTRIES": _int_env("BLOG_RSS_MAX_ENTRIES", 20),
+    "WEEKLY_HIGHLIGHT_KEY": os.getenv("BLOG_WEEKLY_HIGHLIGHT_KEY", "blog/weekly-highlight.json"),
     "LOCAL_WORK_ROOT": os.getenv("BLOG_LOCAL_WORK_ROOT", _local_work_root_default()),
     "DRY_RUN": _bool_env("BLOG_DRY_RUN", False),
     "OVERWRITE_EXISTING": _bool_env("BLOG_OVERWRITE_EXISTING", False),
@@ -159,6 +169,24 @@ WORKER_CONFIG = {
     "DRY_RUN": BLOG_STORAGE_CONFIG["DRY_RUN"],
     "MAIN_AGENT_MAX_ROUNDS": _int_env("BLOG_MAIN_AGENT_MAX_ROUNDS", 3),
     "SUBAGENT_MAX_RETRIES": _int_env("BLOG_SUBAGENT_MAX_RETRIES", 2),
+}
+
+BLOG_API_CONFIG = {
+    "JWT_SECRET": os.getenv("BLOG_API_JWT_SECRET", ""),
+    "JWT_ALGORITHM": os.getenv("BLOG_API_JWT_ALGORITHM", "HS256"),
+    "ACCESS_TOKEN_TTL_MINUTES": _int_env("BLOG_API_ACCESS_TOKEN_TTL_MINUTES", 60),
+    "CORS_ORIGINS": _list_env("BLOG_API_CORS_ORIGINS"),
+    "MONGODB_URI": os.getenv("BLOG_API_MONGODB_URI", ""),
+    "MONGODB_DATABASE": os.getenv("BLOG_API_MONGODB_DATABASE", "entourage_blog"),
+    "USERS_COLLECTION": os.getenv("BLOG_API_USERS_COLLECTION", "blog_users"),
+    "COMMENTS_COLLECTION": os.getenv("BLOG_API_COMMENTS_COLLECTION", "blog_comments"),
+    "SUBSCRIBERS_COLLECTION": os.getenv("BLOG_API_SUBSCRIBERS_COLLECTION", "blog_subscribers"),
+    "EMAIL_TOKENS_COLLECTION": os.getenv("BLOG_API_EMAIL_TOKENS_COLLECTION", "blog_email_tokens"),
+    "DIGEST_SENDS_COLLECTION": os.getenv("BLOG_API_DIGEST_SENDS_COLLECTION", "blog_digest_sends"),
+    "API_BASE_URL": os.getenv("BLOG_API_BASE_URL", ""),
+    "SES_SENDER_EMAIL": os.getenv("BLOG_API_SES_SENDER_EMAIL", ""),
+    "SES_CONFIGURATION_SET": os.getenv("BLOG_API_SES_CONFIGURATION_SET", ""),
+    "MODERATION_MODE": os.getenv("BLOG_API_MODERATION_MODE", "manual_v1"),
 }
 
 

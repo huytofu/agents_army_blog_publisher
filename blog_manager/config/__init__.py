@@ -2,6 +2,7 @@
 
 from blog_manager.config.config import (
     AWS_CONFIG,
+    BLOG_API_CONFIG,
     BLOG_STORAGE_CONFIG,
     EXPANSION_LLM_CONFIG,
     IMAGE_CONFIG,
@@ -18,6 +19,7 @@ from blog_manager.config.config import (
 
 __all__ = [
     "AWS_CONFIG",
+    "BLOG_API_CONFIG",
     "BLOG_STORAGE_CONFIG",
     "EXPANSION_LLM_CONFIG",
     "IMAGE_CONFIG",

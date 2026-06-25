@@ -1,6 +1,12 @@
 boto3
+bcrypt
+email-validator
+fastapi
 huggingface-hub
 langgraph
+mangum
+pymongo
+pyjwt
 python-dotenv
 PyYAML
 together

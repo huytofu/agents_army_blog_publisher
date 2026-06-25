@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import urljoin
+from xml.sax.saxutils import escape
 from typing import Any, Iterable
 
 from blog_manager.config import BLOG_STORAGE_CONFIG, get_aws_client_kwargs
 from blog_manager.constants import (
     IDEA_MARKDOWN_CONTENT_TYPE,
     POSTS_JSON_CONTENT_TYPE,
+    RSS_XML_CONTENT_TYPE,
 )
 from blog_manager.schemas import BlogIdea, FeedEntry, LocalArtifact
 from blog_manager.services.idea_parser import (
@@ -114,6 +117,26 @@ class S3BlogStore:
         normalized = _sort_feed([dict(item) for item in entries])
         payload = json.dumps(normalized, indent=2, ensure_ascii=False) + "\n"
         self.put_text(self.feed_key, payload, content_type=POSTS_JSON_CONTENT_TYPE)
+        self.write_rss_feed(normalized)
+        self.write_weekly_highlight(normalized)
+
+    def write_rss_feed(self, entries: Iterable[dict[str, Any]]) -> None:
+        """Upload RSS XML derived from normalized `blog/posts.json` metadata."""
+        normalized = _sort_feed([dict(item) for item in entries])
+        payload = _render_rss_feed(normalized, self.config)
+        self.put_text(self.config["RSS_KEY"], payload, content_type=RSS_XML_CONTENT_TYPE)
+
+    def write_weekly_highlight(self, entries: Iterable[dict[str, Any]]) -> None:
+        """Upload the deterministic weekly highlight artifact for email digests."""
+        normalized = _sort_feed([dict(item) for item in entries])
+        if not normalized:
+            return
+        payload = json.dumps(_weekly_highlight(normalized[0], self.config), indent=2, ensure_ascii=False) + "\n"
+        self.put_text(
+            self.config["WEEKLY_HIGHLIGHT_KEY"],
+            payload,
+            content_type=POSTS_JSON_CONTENT_TYPE,
+        )
 
     def upload_local_artifact(self, artifact: LocalArtifact | dict[str, Any]) -> None:
         """Upload a local file prepared by the main flow to its S3 key."""
@@ -172,6 +195,58 @@ class S3BlogStore:
 
 def _sort_feed(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(entries, key=lambda item: str(item.get("date") or ""), reverse=True)
+
+
+def _render_rss_feed(entries: list[dict[str, Any]], config: dict[str, Any]) -> str:
+    site_url = _site_url(config)
+    max_entries = int(config.get("RSS_MAX_ENTRIES") or 20)
+    items = "\n".join(_rss_item(entry, site_url) for entry in entries[:max_entries])
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>{escape(str(config.get("RSS_TITLE") or "ENTOURAGE Blog"))}</title>
+    <link>{escape(_absolute_url("blogs.html", site_url))}</link>
+    <description>{escape(str(config.get("RSS_DESCRIPTION") or ""))}</description>
+    <language>{escape(str(config.get("RSS_LANGUAGE") or "en"))}</language>
+{items}
+  </channel>
+</rss>
+"""
+
+
+def _rss_item(entry: dict[str, Any], site_url: str) -> str:
+    url = _absolute_url(str(entry.get("contentPath") or f"blog/{entry.get('slug')}/index.html"), site_url)
+    category = str(entry.get("category") or "Unknown")
+    return f"""    <item>
+      <title>{escape(str(entry.get("title") or "Untitled Post"))}</title>
+      <link>{escape(url)}</link>
+      <guid>{escape(url)}</guid>
+      <description>{escape(str(entry.get("excerpt") or ""))}</description>
+      <pubDate>{escape(str(entry.get("date") or ""))}</pubDate>
+      <category>{escape(category)}</category>
+    </item>"""
+
+
+def _weekly_highlight(entry: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    date = str(entry.get("date") or "").strip()
+    selected_at = f"{date}T00:00:00Z" if date else ""
+    return {
+        "slug": str(entry.get("slug") or ""),
+        "title": str(entry.get("title") or "Untitled Post"),
+        "excerpt": str(entry.get("excerpt") or ""),
+        "url": _absolute_url(str(entry.get("contentPath") or f"blog/{entry.get('slug')}/index.html"), _site_url(config)),
+        "category": str(entry.get("category") or "Unknown"),
+        "tags": list(entry.get("tags") or []),
+        "selected_at": selected_at,
+    }
+
+
+def _site_url(config: dict[str, Any]) -> str:
+    return str(config.get("SITE_URL") or "https://www.entourage-ai.life").rstrip("/") + "/"
+
+
+def _absolute_url(path: str, site_url: str) -> str:
+    return urljoin(site_url, path.lstrip("/"))
 
 
 def _is_s3_not_found(exc: Exception) -> bool:
