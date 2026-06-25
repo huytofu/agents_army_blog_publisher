@@ -1,2 +1,4 @@
 .deployment_env/
 *.pyc
+tests/
+requirements-dev.txt
