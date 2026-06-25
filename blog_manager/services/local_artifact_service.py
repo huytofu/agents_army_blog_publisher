@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import html
 import asyncio
+import json
 import logging
 import re
 import shutil
@@ -260,6 +261,14 @@ def render_article_html(post: ExpandedPost) -> str:
     seo_description = html.escape(post.seo_description or post.excerpt)
     body = markdown_to_html(post.body_markdown, supporting_images=post.supporting_images)
     cover_path = html.escape(f"cover.jpg")
+    article_tags = _article_tags(post)
+    article_meta_tags = "\n".join(
+        f'    <meta property="article:tag" content="{html.escape(tag)}">'
+        for tag in article_tags
+    )
+    structured_data = _structured_data_scripts(post)
+    content_note = _render_safety_notes(post.safety_notes)
+    references = _render_citation_suggestions(post.citation_suggestions)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -268,6 +277,17 @@ def render_article_html(post: ExpandedPost) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{seo_title}</title>
     <meta name="description" content="{seo_description}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{seo_title}">
+    <meta property="og:description" content="{seo_description}">
+    <meta property="og:image" content="{cover_path}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{seo_title}">
+    <meta name="twitter:description" content="{seo_description}">
+    <meta name="twitter:image" content="{cover_path}">
+    <meta property="article:published_time" content="{html.escape(post.date)}">
+{article_meta_tags}
+{structured_data}
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.7; color: #1f2937; margin: 0; background: #f9fafb; }}
         main {{ max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem 4rem; background: #ffffff; }}
@@ -275,6 +295,8 @@ def render_article_html(post: ExpandedPost) -> str:
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
+        .content-note {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .reference-list {{ background: #f3f4f6; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
         p {{ margin: 1rem 0; }}
         a {{ color: #4f46e5; }}
@@ -290,6 +312,8 @@ def render_article_html(post: ExpandedPost) -> str:
             <p><strong>{excerpt}</strong></p>
             <img class="cover" src="{cover_path}" alt="{title}">
             {body}
+            {content_note}
+            {references}
         </article>
     </main>
 </body>
@@ -358,6 +382,105 @@ def _inline_markdown(value: str) -> str:
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
     return escaped
+
+
+def _article_tags(post: ExpandedPost) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in post.tags:
+        tag = str(item or "").strip()
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+    return tags
+
+
+def _structured_data_scripts(post: ExpandedPost) -> str:
+    scripts = [_json_ld_script(_blog_posting_schema(post))]
+    faq_schema = _faq_page_schema(post)
+    if faq_schema:
+        scripts.append(_json_ld_script(faq_schema))
+    return "\n".join(scripts)
+
+
+def _blog_posting_schema(post: ExpandedPost) -> dict[str, object]:
+    keywords = _article_tags(post)
+    return {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": post.seo_title or post.title,
+        "description": post.seo_description or post.excerpt,
+        "datePublished": post.date,
+        "image": f"blog/{post.slug}/cover.jpg",
+        "mainEntityOfPage": f"blog/{post.slug}/index.html",
+        "keywords": keywords,
+        "articleSection": post.category,
+    }
+
+
+def _faq_page_schema(post: ExpandedPost) -> dict[str, object] | None:
+    questions = []
+    for item in post.faq_items:
+        question = str(item.get("question") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if not question or not answer:
+            continue
+        questions.append(
+            {
+                "@type": "Question",
+                "name": question,
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": answer,
+                },
+            }
+        )
+    if not questions:
+        return None
+    return {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": questions,
+    }
+
+
+def _json_ld_script(payload: dict[str, object]) -> str:
+    json_text = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    return f'    <script type="application/ld+json">\n{json_text}\n    </script>'
+
+
+def _render_safety_notes(safety_notes: list[str]) -> str:
+    items = [str(item or "").strip() for item in safety_notes if str(item or "").strip()]
+    if not items:
+        return ""
+    list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    return (
+        '<section class="content-note">'
+        "<h2>Content note</h2>"
+        "<ul>"
+        f"{list_items}"
+        "</ul>"
+        "</section>"
+    )
+
+
+def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
+    items = [str(item or "").strip() for item in citation_suggestions if str(item or "").strip()]
+    if not items:
+        return ""
+    list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    return (
+        '<section class="reference-list">'
+        "<h2>References worth exploring</h2>"
+        "<ul>"
+        f"{list_items}"
+        "</ul>"
+        "</section>"
+    )
 
 
 def _first_response_item(response: object) -> object | None:

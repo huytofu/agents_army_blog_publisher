@@ -244,6 +244,11 @@ def _post_payload(post: Any | None) -> dict[str, Any] | None:
         ],
         "seo_title": post.seo_title,
         "seo_description": post.seo_description,
+        "primary_keyword": post.primary_keyword,
+        "search_intent": post.search_intent,
+        "category": post.category,
+        "faq_items": post.faq_items,
+        "citation_suggestions": post.citation_suggestions,
         "safety_notes": post.safety_notes,
     }
 

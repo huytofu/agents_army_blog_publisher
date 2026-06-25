@@ -20,29 +20,60 @@ from blog_manager.services.llm_client import BlogLlmClient
 
 logger = logging.getLogger(__name__)
 
-BLOG_CATEGORIES = ["Inner Work", "Habits", "Love", "Fitness", "Philosophy", "Unknown"]
+BLOG_CATEGORIES = [
+    "Purpose",
+    "Stoicism",
+    "Psychology",
+    "Relationships",
+    "Productivity",
+    "Habits",
+    "Inner Work",
+    "Love",
+    "Fitness",
+    "Philosophy",
+    "Unknown",
+]
 DEFAULT_CATEGORY = "Unknown"
+SEARCH_INTENTS = [
+    "informational",
+    "problem_solving",
+    "comparative",
+    "transactional",
+    "unknown",
+]
+DEFAULT_SEARCH_INTENT = "unknown"
 
 SYSTEM_PROMPT = """You are BlogExpansionAgent, the Entourage blog content specialist.
 
 ROLE:
 - Expand rough Markdown blog ideas into complete, engaging Entourage blog posts.
-- Preserve the user's intent and do not invent product capabilities.
 - Use a warm, practical, emotionally grounded tone.
-- Avoid medical diagnosis, guaranteed outcomes, or clinical treatment claims.
+- Preserver the user's intent 
+- Avoid medical diagnosis, guaranteed outcomes, or treatment claims.
 
 CONTENT RESPONSIBILITIES:
-- Write publication-ready Markdown with a strong title, useful headings, short paragraphs, and a grounded closing reflection.
-- Provide a concise excerpt and SEO metadata that accurately summarize the post.
+- Write publication-ready Markdown with a concise excerpt, strong title, useful descriptive headings, short paragraphs, and a grounded closing reflection.
+- Build each article around a clear search intent (informational|problem-solving|comparative|transactional|unknown). Infer from user's idea.
+- Give readers a direct answer, definition, or practical framing in the first 100 words.
+- Add 1 to 2 FAQ items that answer likely long-tail search questions afer closing reflection.
+- Use plenty of emoticons at both mid and end of sentences 
+- Use occasional humor throughout the post (no dark humor, threat, or triggering content allowed)
+- Limit the post length to between 700 words and 900 words.
+
+IMPORTANT INSTRUCTIONS:
+- Keep `seo_title` concise and search-friendly at 40 to 50 characters.
+- Keep `seo_description` compelling and accurate at 120 to 150 characters.
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
 - Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
-- Choose a few concise `tags`/keywords that can help readers search for relevant articles.
-- Choose exactly one `category` from this fixed set: Inner Work|Habits|Love|Fitness|Philosophy|Unknown.
-- Include `safety_notes` for any claims or wording that should remain cautious.
-- Limit the post length to minimum of 700 words and maximum of 900 words.
-- Use plenty of emoticons at both mid and end of sentences 
-- Use occasional humor throughout the post (no dark humor, threat, or triggering content allowed)
+- Choose one `category` for topical authority from: Purpose|Stoicism|Psychology|Relationships|Productivity|Habits|Inner Work|Love|Fitness|Philosophy|Unknown.
+- Pick one long-tail `primary_keyword`.
+a) Use the primary keyword naturally in the title, opening paragraph, `seo_title`, and `seo_description`.
+b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
+
+GOOD TO HAVE:
+- Include optional `safety_notes` for any claims or wording that should remain cautious. Omit the field if there are no useful notes.
+- Include optional `citation_suggestions` when relevant, such as credible books, researchers, or studies. Omit the field if there are no useful suggestions. Do not fabricate citations, URLs, people's names, study details, credentials.
 
 BOUNDARIES:
 - Do not decide workflow routing, publishing, retries, or failure handling.
@@ -67,9 +98,18 @@ Return ONLY valid JSON with exactly these top-level fields:
     }
   ],
   "tags": ["short keyword"],
-  "category": "Inner Work|Habits|Love|Fitness|Philosophy|Unknown",
+  "category": "Purpose|Stoicism|Psychology|Relationships|Productivity|Habits|Inner Work|Love|Fitness|Philosophy|Unknown",
   "seo_title": "string",
   "seo_description": "string",
+  "primary_keyword": "long-tail keyword string",
+  "search_intent": "informational|problem_solving|comparative|transactional|unknown",
+  "faq_items": [
+    {
+      "question": "likely reader/search question",
+      "answer": "concise, accurate answer"
+    }
+  ],
+  "citation_suggestions": ["credible source to consider"],
   "safety_notes": ["string"]
 }
 """
@@ -200,6 +240,10 @@ def _build_revision_user_prompt(
         "category": post.category,
         "seo_title": post.seo_title,
         "seo_description": post.seo_description,
+        "primary_keyword": post.primary_keyword,
+        "search_intent": post.search_intent,
+        "faq_items": post.faq_items,
+        "citation_suggestions": post.citation_suggestions,
         "safety_notes": post.safety_notes,
     }
     return f"""## Current expanded post
@@ -247,8 +291,9 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
     body_markdown = _required_string(payload, "body_markdown")
     image_prompt = _required_string(payload, "image_prompt")
     supporting_images = _supporting_images_from_payload(payload.get("supporting_images"), body_markdown)
-    tags = _tags_from_payload(payload.get("tags"))
+    tags = _tags_from_payload(payload.get("tags"), payload.get("secondary_keywords"))
     category = _category_from_payload(payload.get("category"))
+    search_intent = _search_intent_from_payload(payload.get("search_intent"))
 
     return ExpandedPost(
         title=title,
@@ -259,6 +304,10 @@ def _expanded_post_from_payload(payload: dict[str, Any]) -> ExpandedPost:
         image_prompt=image_prompt,
         seo_title=str(payload.get("seo_title") or title).strip(),
         seo_description=str(payload.get("seo_description") or excerpt).strip(),
+        primary_keyword=str(payload.get("primary_keyword") or "").strip(),
+        search_intent=search_intent,
+        faq_items=_faq_items_from_payload(payload.get("faq_items")),
+        citation_suggestions=_deduped_string_list(payload.get("citation_suggestions")),
         safety_notes=_string_list(payload.get("safety_notes")),
         supporting_images=supporting_images,
         tags=tags,
@@ -279,13 +328,24 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def _tags_from_payload(value: Any) -> list[str]:
+def _deduped_string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
+    items: list[str] = []
+    seen: set[str] = set()
+    for item in _string_list(value):
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+    return items
 
+
+def _tags_from_payload(value: Any, legacy_secondary_keywords: Any = None) -> list[str]:
     tags: list[str] = []
     seen: set[str] = set()
-    for item in value:
+    for item in [*_string_list(value), *_string_list(legacy_secondary_keywords)]:
         tag = str(item).strip()
         if not tag:
             continue
@@ -302,6 +362,34 @@ def _category_from_payload(value: Any) -> str:
     if category in BLOG_CATEGORIES:
         return category
     return DEFAULT_CATEGORY
+
+
+def _search_intent_from_payload(value: Any) -> str:
+    search_intent = str(value or "").strip()
+    if search_intent in SEARCH_INTENTS:
+        return search_intent
+    return DEFAULT_SEARCH_INTENT
+
+
+def _faq_items_from_payload(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get("question") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if not question or not answer:
+            continue
+        key = question.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"question": question, "answer": answer})
+    return items
 
 
 def _supporting_images_from_payload(value: Any, body_markdown: str) -> list[SupportingImage]:

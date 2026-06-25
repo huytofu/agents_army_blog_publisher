@@ -81,6 +81,10 @@ class ExpandedPost:
     image_prompt: str
     seo_title: str = ""
     seo_description: str = ""
+    primary_keyword: str = ""
+    search_intent: str = "unknown"
+    faq_items: list[dict[str, str]] = field(default_factory=list)
+    citation_suggestions: list[str] = field(default_factory=list)
     safety_notes: list[str] = field(default_factory=list)
     supporting_images: list[SupportingImage] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
