@@ -34,16 +34,22 @@ VALUE-ADDED RESPONSIBILITIES:
 5. Add callouts/visual cues or breaks/section dividers/footnotes to improve readability or aesthetics
 
 BOUNDARIES:
-- Do not access S3.
+- Do not access S3. 
+- Do not invoke any write tools.
 - Do not invent new product claims, medical claims, or unrelated sections.
-- Return only JSON for the preparation step. The graph will invoke the local write tool after your preparation.
+- Do not include literal raw newlines or other control characters inside JSON strings.
 
 OUTPUT:
+Do not add any text before or after the JSON.
 Return ONLY valid JSON with:
 {
-  "body_markdown": "presentation-polished markdown",
+  "body_markdown": "presentation-polished markdown - must be a single valid JSON string",
   "presentation_notes": ["short note"]
 }
+
+JSON SAFETY:
+- Return one JSON object only. Do not wrap it in Markdown fences.
+- Escape all line breaks as `\\n`, tabs as `\\t`, quotes as `\\"`, and backslashes as `\\\\`.
 """
 
 
@@ -176,6 +182,20 @@ def _build_html_user_prompt(
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:
+    text = _clean_json_response(raw)
+    try:
+        parsed = _json_loads_lenient(text)
+    except json.JSONDecodeError as exc:
+        parsed = _parse_embedded_json_object(text)
+        if parsed is None:
+            raise exc
+
+    if not isinstance(parsed, dict):
+        raise ValueError("HTML subagent output must be a JSON object.")
+    return parsed
+
+
+def _clean_json_response(raw: str) -> str:
     text = (raw or "").strip()
     if text.startswith("```json"):
         text = text[7:]
@@ -183,10 +203,29 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
         text = text[3:]
     if text.endswith("```"):
         text = text[:-3]
-    parsed = json.loads(text.strip())
-    if not isinstance(parsed, dict):
-        raise ValueError("HTML subagent output must be a JSON object.")
-    return parsed
+    return text.strip()
+
+
+def _json_loads_lenient(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as strict_error:
+        try:
+            return json.loads(text, strict=False)
+        except json.JSONDecodeError:
+            raise strict_error
+
+
+def _parse_embedded_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder(strict=False)
+    for match in re.finditer(r"\{", text):
+        try:
+            parsed, _ = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def _string_list(value: Any) -> list[str]:

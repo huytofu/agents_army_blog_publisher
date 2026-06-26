@@ -50,7 +50,8 @@ PUBLISHING RULES:
 - Never choose publish just because content is good; artifact generation and validation must have happened first.
 
 OUTPUT:
-Return ONLY valid JSON with this schema (subagent_plan is optional except for at FinalizeSubagentsPlan):
+Do not add any text before or after the JSON.
+Return ONLY valid JSON with this schema (subagent_plan is optional except at FinalizeSubagentsPlan):
 {
   "decision": "expand_content|revise_content|generate_artifacts|retry_artifacts|publish|fail",
   "reason": "short user-safe explanation",

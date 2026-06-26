@@ -158,8 +158,8 @@ BOUNDARIES:
 - Do not render HTML or generate images.
 
 OUTPUT:
-Return ONLY valid JSON with exactly these top-level fields.
-Do not add any text before or after the JSON:
+Do not add any text before or after the JSON.
+Return ONLY valid JSON with exactly these top-level fields:
 {
   "title": "string",
   "slug": "kebab-case-string",

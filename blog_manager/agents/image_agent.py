@@ -32,6 +32,7 @@ BOUNDARIES:
 - Return only JSON for the preparation step. The graph will invoke the local image tool after your preparation.
 
 OUTPUT:
+Do not add any text before or after the JSON.
 Return ONLY valid JSON with:
 {
   "image_count": 2,
