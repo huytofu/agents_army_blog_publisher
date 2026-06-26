@@ -43,6 +43,7 @@ SEARCH_INTENTS = [
     "unknown",
 ]
 DEFAULT_SEARCH_INTENT = "unknown"
+LLM_JSON_LOG_LIMIT = 12000
 
 
 class StyleOption(NamedTuple):
@@ -134,7 +135,6 @@ CONTENT RESPONSIBILITIES:
 - Give readers a direct answer, definition, or practical framing in the first 100 words.
 - Add 1 to 2 FAQ items that answer likely long-tail search questions afer closing reflection.
 - Use plenty of emoticons at both mid and end of sentences 
-- Use occasional humor throughout the post (no dark humor, threat, or triggering content allowed)
 - Limit the post length to between 700 words and 900 words.
 
 IMPORTANT INSTRUCTIONS:
@@ -156,10 +156,10 @@ BOUNDARIES:
 - Do not decide workflow routing, publishing, retries, or failure handling.
 - Do not perform S3 operations.
 - Do not render HTML or generate images.
-- Do not manage subagents or produce subagent handoff plans.
 
 OUTPUT:
-Return ONLY valid JSON with exactly these top-level fields:
+Return ONLY valid JSON with exactly these top-level fields.
+Do not add any text before or after the JSON:
 {
   "title": "string",
   "slug": "kebab-case-string",
@@ -371,18 +371,56 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
     text = _clean_response(raw)
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            raise BlogExpansionError("Expansion output did not contain JSON.")
-        try:
-            parsed = json.loads(match.group())
-        except json.JSONDecodeError as exc:
-            raise BlogExpansionError(f"Expansion JSON parse failed: {exc}") from exc
+    except json.JSONDecodeError as whole_response_error:
+        parsed = _parse_embedded_json_object(text)
+        if parsed is None:
+            _log_invalid_llm_json_response(raw, text, whole_response_error)
+            raise BlogExpansionError(
+                f"Expansion JSON parse failed: {whole_response_error}"
+            ) from whole_response_error
 
     if not isinstance(parsed, dict):
+        _log_invalid_llm_json_response(raw, text)
         raise BlogExpansionError("Expansion output must be a JSON object.")
     return parsed
+
+
+def _parse_embedded_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            parsed, _ = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _log_invalid_llm_json_response(
+    raw: str,
+    cleaned: str,
+    exc: json.JSONDecodeError | None = None,
+) -> None:
+    raw_preview = _truncate_for_log(raw or "")
+    cleaned_preview = _truncate_for_log(cleaned)
+    reason = f" error={exc}" if exc else ""
+    message = (
+        "BlogExpansionAgent invalid JSON response"
+        f"{reason} raw_len={len(raw or '')} cleaned_len={len(cleaned)} "
+        f"raw_response={raw_preview!r} cleaned_response={cleaned_preview!r}"
+    )
+    print(message)
+    logger.warning(message)
+
+
+def _truncate_for_log(value: str) -> str:
+    if len(value) <= LLM_JSON_LOG_LIMIT:
+        return value
+    return (
+        value[:LLM_JSON_LOG_LIMIT]
+        + f"... [truncated {len(value) - LLM_JSON_LOG_LIMIT} chars]"
+    )
 
 
 def _clean_response(raw: str) -> str:
