@@ -303,10 +303,9 @@ def render_article_html(post: ExpandedPost) -> str:
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
-        .content-note {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
-        .reference-list {{ background: #f3f4f6; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .content-note, .reference-list {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
         .subscribe-cta, .comments-section, .related-posts, .share-actions {{ background: #eef2ff; border-radius: 14px; margin-top: 2rem; padding: 1rem 1.25rem; }}
-        .comments-section {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
+        .comments-section, .share-actions {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
         .share-actions a {{ display: inline-block; margin-right: 0.75rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
         p {{ margin: 1rem 0; }}
@@ -369,10 +368,10 @@ def markdown_to_html(
             continue
         if line.startswith("### "):
             flush_list()
-            blocks.append(f"<h3>{_inline_markdown(line[4:])}</h3>")
+            blocks.append(f"<h4>{_inline_markdown(line[4:])}</h4>")
         elif line.startswith("## "):
             flush_list()
-            blocks.append(f"<h2>{_inline_markdown(line[3:])}</h2>")
+            blocks.append(f"<h3>{_inline_markdown(line[3:])}</h3>")
         elif line.startswith("# "):
             flush_list()
             blocks.append(f"<h2>{_inline_markdown(line[2:])}</h2>")
@@ -524,10 +523,6 @@ def _render_growth_sections(post: ExpandedPost) -> str:
             <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
             <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
             <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
-        </section>
-        <section class="comments-section">
-            <h2>Reflection prompt</h2>
-            <p>Which sentence from “{title}” feels useful enough to test this week?</p>
         </section>
     """
 
