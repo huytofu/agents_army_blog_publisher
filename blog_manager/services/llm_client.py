@@ -82,7 +82,7 @@ class BlogLlmClient:
             )
             return _extract_message_content(response)
         except Exception as exc:
-            logger.warning("Together blog completion failed: %s", exc)
+            logger.warning("Together blog completion failed: %s", _format_provider_exception(exc))
             return [], ""
         finally:
             await _safe_close(client)
@@ -109,7 +109,11 @@ class BlogLlmClient:
             )
             return _extract_message_content(response)
         except Exception as exc:
-            logger.warning("HuggingFace blog completion failed model=%s error=%s", model, exc)
+            logger.warning(
+                "HuggingFace blog completion failed model=%s error=%s",
+                model,
+                _format_provider_exception(exc),
+            )
             return [], ""
         finally:
             await _safe_close(client)
@@ -134,3 +138,27 @@ def _extract_message_content(response: Any) -> tuple[list[Any], str]:
     message = getattr(first_choice, "message", {"content": ""})
     content = getattr(message, "content", "")
     return choices, str(content or "").strip()
+
+
+def _format_provider_exception(exc: BaseException) -> str:
+    details = [f"type={type(exc).__name__}"]
+    message = str(exc).strip()
+    if message:
+        details.append(f"message={message}")
+    details.append(f"repr={exc!r}")
+
+    status_code = getattr(exc, "status_code", None)
+    if status_code is not None:
+        details.append(f"status_code={status_code}")
+
+    body = getattr(exc, "body", None)
+    if body is not None:
+        details.append(f"body={_truncate_detail(repr(body))}")
+
+    return " ".join(details)
+
+
+def _truncate_detail(value: str, limit: int = 1000) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}..."

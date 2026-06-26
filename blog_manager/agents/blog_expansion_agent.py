@@ -86,37 +86,28 @@ PERSONAS = [
 
 RHETORICAL_SHAPES = [
     StyleOption(
-        "story-first",
-        "Start from a relatable moment, then draw out practical lessons.",
-    ),
-    StyleOption(
-        "question-led",
-        "Use reader questions to organize sections and build momentum.",
-    ),
-    StyleOption(
-        "myth-busting",
-        "Name a common misconception, then replace it with grounded guidance.",
-    ),
-    StyleOption(
         "list-guided",
-        "Use a clear framework with titled steps or principles.",
+        "Propose a clear framework with titled concepts, principles and actionable strategies.",
+    ),
+    StyleOption(
+        "question-guided",
+        "Use open-ended questions followed by structured answers to build momentum.",
     ),
     StyleOption(
         "reflective essay",
-        "Move through observation, insight, and a grounded closing reflection.",
+        "Move through observation, analysis, insights/epiphanies/takeaways.",
     ),
     StyleOption(
         "practical framework",
-        "Define the problem, offer a simple model, then show how to apply it.",
+        "Define the problem, offer a simple model, and practical steps to take.",
     ),
 ]
 
 OPENING_CONSTRAINTS = [
     StyleOption("concrete scene", "Begin with a concrete everyday scene."),
     StyleOption("common misconception", "Begin by correcting a common misconception."),
-    StyleOption("direct definition", "Begin with a direct, useful definition."),
     StyleOption("tiny story", "Begin with a tiny story in 2 to 3 sentences."),
-    StyleOption("practical promise", "Begin with a practical promise to the reader."),
+    StyleOption("hopeful promise", "Begin with a hopeful promise to the reader."),
 ]
 
 SYSTEM_PROMPT = """You are BlogExpansionAgent, the Entourage blog content specialist.
@@ -128,7 +119,7 @@ ROLE:
 - Avoid medical diagnosis, guaranteed outcomes, or treatment claims.
 
 CONTENT RESPONSIBILITIES:
-- Write publication-ready Markdown with a concise excerpt, strong title, useful descriptive headings, short paragraphs, and a grounded closing reflection.
+- Write publication-ready Markdown with a concise excerpt, strong title, useful headings (different from title), short paragraphs, and a grounded closing reflection.
 - Build each article around a clear search intent (informational|problem-solving|comparative|transactional|unknown). Infer from user's idea.
 - Give readers a direct answer, definition, or practical framing in the first 100 words.
 - Add 1 to 2 FAQ items that answer likely long-tail search questions afer closing reflection.
@@ -143,7 +134,7 @@ IMPORTANT INSTRUCTIONS:
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
 - Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown.
 - Pick one long-tail `primary_keyword`.
-a) Use the primary keyword naturally in the title, opening paragraph, `seo_title`, and `seo_description`.
+a) Use the primary keyword naturally in the opening paragraph, `seo_title`, and `seo_description`.
 b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
 
 GOOD TO HAVE:

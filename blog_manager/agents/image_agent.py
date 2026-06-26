@@ -28,8 +28,8 @@ VALUE-ADDED RESPONSIBILITIES:
 
 BOUNDARIES:
 - Do not access S3.
+- Do not invoke any image generation tools.
 - Do not revise the article content.
-- Return only JSON for the preparation step. The graph will invoke the local image tool after your preparation.
 
 OUTPUT:
 Do not add any text before or after the JSON.
