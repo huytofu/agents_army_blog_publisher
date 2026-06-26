@@ -163,18 +163,11 @@ def _build_html_user_prompt(
         "post": {
             "title": post.title,
             "slug": post.slug,
-            "date": post.date,
             "excerpt": post.excerpt,
             "body_markdown": post.body_markdown,
-            "seo_title": post.seo_title,
-            "seo_description": post.seo_description,
-            "primary_keyword": post.primary_keyword,
-            "search_intent": post.search_intent,
-            "category": post.category,
-            "faq_items": post.faq_items,
-            "citation_suggestions": post.citation_suggestions,
-            "safety_notes": post.safety_notes,
-            "tags": post.tags,
+            "supporting_images": [
+                {"filename": image.filename} for image in post.supporting_images
+            ],
         },
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)

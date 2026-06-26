@@ -137,6 +137,22 @@ def build_content_review_observation(state: BlogGraphState) -> str:
     )
 
 
+def build_pre_faq_generation_observation(state: BlogGraphState) -> str:
+    post = state.expanded_post
+    return _json_observation(
+        "PreFaqGeneration",
+        {
+            "expanded_post": _post_payload(post),
+            "main_round": state.main_round,
+            "errors": state.errors,
+            "task": (
+                "Generate schema-only faq_items for crawler-facing FAQPage JSON-LD. "
+                "Do not add FAQ content to body_markdown."
+            ),
+        },
+    )
+
+
 def build_finalize_subagents_observation(
     state: BlogGraphState,
     default_plan: list[AgentInvocation],

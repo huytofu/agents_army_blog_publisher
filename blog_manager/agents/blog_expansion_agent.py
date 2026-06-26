@@ -122,7 +122,6 @@ CONTENT RESPONSIBILITIES:
 - Write publication-ready Markdown with a concise excerpt, strong title, useful headings (different from title), short paragraphs, and a grounded closing reflection.
 - Build each article around a clear search intent (informational|problem-solving|comparative|transactional|unknown). Infer from user's idea.
 - Give readers a direct answer, definition, or practical framing in the first 100 words.
-- Add 1 to 2 FAQ items that answer likely long-tail search questions afer closing reflection.
 - Use plenty of emoticons at both mid and end of sentences 
 - Limit the post length to between 700 words and 900 words.
 
@@ -171,12 +170,6 @@ Return ONLY valid JSON with exactly these top-level fields:
   "seo_description": "string",
   "primary_keyword": "long-tail keyword string",
   "search_intent": "informational|problem_solving|comparative|transactional|unknown",
-  "faq_items": [
-    {
-      "question": "likely reader/search question",
-      "answer": "concise, accurate answer"
-    }
-  ],
   "citation_suggestions": ["credible source to consider"],
   "safety_notes": ["string"]
 }
@@ -343,7 +336,6 @@ def _build_revision_user_prompt(
         "seo_description": post.seo_description,
         "primary_keyword": post.primary_keyword,
         "search_intent": post.search_intent,
-        "faq_items": post.faq_items,
         "citation_suggestions": post.citation_suggestions,
         "safety_notes": post.safety_notes,
     }
@@ -514,24 +506,7 @@ def _search_intent_from_payload(value: Any) -> str:
 
 
 def _faq_items_from_payload(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-
-    items: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        question = str(item.get("question") or "").strip()
-        answer = str(item.get("answer") or "").strip()
-        if not question or not answer:
-            continue
-        key = question.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        items.append({"question": question, "answer": answer})
-    return items
+    return []
 
 
 def _supporting_images_from_payload(value: Any, body_markdown: str) -> list[SupportingImage]:
