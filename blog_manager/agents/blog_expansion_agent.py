@@ -150,9 +150,11 @@ b) Add 2 to 4 related short keywords to `tags` to help readers search for releva
 
 GOOD TO HAVE:
 - Include optional `safety_notes` for any claims or wording that should remain cautious. Omit the field if there are no useful notes.
-- Include optional `citation_suggestions` when relevant, such as credible books, researchers, or studies. Omit the field if there are no useful suggestions. Do not fabricate citations, URLs, people's names, study details, credentials.
+- Include optional `citation_suggestions` when relevant, such as credible books, researchers, or studies. Omit the field if there are no useful suggestions. 
 
 BOUNDARIES:
+- Do not fabricate citations, URLs, people's names, study details, credentials.
+- Do not add safety notes or citation suggestions to `body_markdown`. Only include them as JSON fields.
 - Do not decide workflow routing, publishing, retries, or failure handling.
 - Do not perform S3 operations.
 - Do not render HTML or generate images.
