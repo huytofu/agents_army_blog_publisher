@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 from blog_manager.config import LLM_CONFIG, get_hf_token, get_together_token
+
+if TYPE_CHECKING:
+    from together.types.chat.completion_create_params import Message as TogetherMessage
 
 try:
     from together import AsyncTogether  # type: ignore[import-not-found]
@@ -59,7 +62,7 @@ class BlogLlmClient:
             response = await asyncio.wait_for(
                 client.chat.completions.create(
                     model=model,
-                    messages=messages,
+                    messages=cast("Iterable[TogetherMessage]", messages),
                     max_tokens=self.config["MAX_TOKENS"],
                     temperature=self.config["TEMPERATURE"],
                     top_p=self.config["TOP_P"],

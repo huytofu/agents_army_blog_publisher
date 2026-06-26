@@ -24,13 +24,11 @@ logger = logging.getLogger(__name__)
 BLOG_CATEGORIES = [
     "Purpose",
     "Stoicism",
-    "Psychology",
     "Relationships",
     "Productivity",
     "Habits",
     "Inner Work",
     "Love",
-    "Fitness",
     "Philosophy",
     "Unknown",
 ]
@@ -143,7 +141,7 @@ IMPORTANT INSTRUCTIONS:
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
 - Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
-- Choose one `category` for topical authority from: Purpose|Stoicism|Psychology|Relationships|Productivity|Habits|Inner Work|Love|Fitness|Philosophy|Unknown.
+- Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown.
 - Pick one long-tail `primary_keyword`.
 a) Use the primary keyword naturally in the title, opening paragraph, `seo_title`, and `seo_description`.
 b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
@@ -177,7 +175,7 @@ Do not add any text before or after the JSON:
     }
   ],
   "tags": ["short keyword"],
-  "category": "Purpose|Stoicism|Psychology|Relationships|Productivity|Habits|Inner Work|Love|Fitness|Philosophy|Unknown",
+  "category": "Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown",
   "seo_title": "string",
   "seo_description": "string",
   "primary_keyword": "long-tail keyword string",
