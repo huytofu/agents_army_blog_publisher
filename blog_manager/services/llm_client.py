@@ -74,9 +74,7 @@ class BlogLlmClient:
                 client.chat.completions.create(
                     model=model,
                     messages=cast("Iterable[TogetherMessage]", messages),
-                    max_tokens=self.config["MAX_TOKENS"],
-                    temperature=self.config["TEMPERATURE"],
-                    top_p=self.config["TOP_P"],
+                    **_build_together_request_options(self.config),
                 ),
                 timeout=self.config["TIMEOUT_SEC"],
             )
@@ -137,7 +135,27 @@ def _extract_message_content(response: Any) -> tuple[list[Any], str]:
     first_choice = choices[0]
     message = getattr(first_choice, "message", {"content": ""})
     content = getattr(message, "content", "")
+    if not content:
+        reasoning = getattr(message, "reasoning", "")
+        if reasoning:
+            logger.warning(
+                "Provider returned reasoning without final content finish_reason=%s reasoning_chars=%d",
+                getattr(first_choice, "finish_reason", None),
+                len(str(reasoning)),
+            )
     return choices, str(content or "").strip()
+
+
+def _build_together_request_options(config: dict[str, Any]) -> dict[str, Any]:
+    options = {
+        "max_tokens": config["MAX_TOKENS"],
+        "temperature": config["TEMPERATURE"],
+        "top_p": config["TOP_P"],
+    }
+    reasoning_effort = str(config.get("REASONING_EFFORT", "") or "").strip().lower()
+    if reasoning_effort:
+        options["reasoning_effort"] = reasoning_effort
+    return options
 
 
 def _format_provider_exception(exc: BaseException) -> str:
