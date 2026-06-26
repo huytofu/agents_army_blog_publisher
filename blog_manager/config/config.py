@@ -108,6 +108,7 @@ LLM_CONFIG = {
     "TEMPERATURE": _float_env("BLOG_LLM_TEMPERATURE", 0.7),
     "TOP_P": _float_env("BLOG_LLM_TOP_P", 0.9),
     "TIMEOUT_SEC": _int_env("BLOG_LLM_TIMEOUT_SEC", 90),
+    "DEBUG": _bool_env("BLOG_LLM_DEBUG", False),
 }
 
 PIPELINE_LLM_CONFIG = {

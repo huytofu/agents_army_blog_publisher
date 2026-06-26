@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
 from blog_manager.config import LLM_CONFIG, get_hf_token, get_together_token
+DEBUG = LLM_CONFIG["DEBUG"]
 
 if TYPE_CHECKING:
     from together.types.chat.completion_create_params import Message as TogetherMessage
@@ -36,26 +37,36 @@ class BlogLlmClient:
 
     async def chat_completion(self, messages: list[dict[str, str]]) -> str:
         """Return assistant text from the first successful configured provider."""
-        response = await self._try_together(messages)
+        choices, response = await self._try_together(messages)
+        if DEBUG:
+            print(f"Together choices: {choices}")
+            print(f"Together response: {response}")
         if response:
             return response
 
-        response = await self._try_huggingface(messages, self.config.get("HF_MODEL", ""))
+        choices, response = await self._try_huggingface(messages, self.config.get("HF_MODEL", ""))
+        if DEBUG:
+            print(f"HuggingFace choices: {choices}")
+            print(f"HuggingFace response: {response}")
         if response:
             return response
 
         for fallback_model in self.config.get("HF_FALLBACK_MODEL_IDS", []):
-            response = await self._try_huggingface(messages, fallback_model)
+            choices, response = await self._try_huggingface(messages, fallback_model)
+            if DEBUG:
+                print(f"HuggingFace fallback model: {fallback_model}")
+                print(f"HuggingFace choices: {choices}")
+                print(f"HuggingFace response: {response}")
             if response:
                 return response
 
         raise BlogLlmError("All blog LLM providers failed or returned empty output.")
 
-    async def _try_together(self, messages: list[dict[str, str]]) -> str:
+    async def _try_together(self, messages: list[dict[str, str]]) -> tuple[list[Any], str]:
         model = self.config.get("TOGETHER_MODEL", "")
         token = get_together_token()
         if not model or not token or AsyncTogether is None:
-            return ""
+            return [], ""
 
         client = AsyncTogether(api_key=token)
         try:
@@ -72,14 +83,14 @@ class BlogLlmClient:
             return _extract_message_content(response)
         except Exception as exc:
             logger.warning("Together blog completion failed: %s", exc)
-            return ""
+            return [], ""
         finally:
             await _safe_close(client)
 
-    async def _try_huggingface(self, messages: list[dict[str, str]], model: str) -> str:
+    async def _try_huggingface(self, messages: list[dict[str, str]], model: str) -> tuple[list[Any], str]:
         token = get_hf_token()
         if not model or not token or AsyncInferenceClient is None:
-            return ""
+            return [], ""
 
         client = AsyncInferenceClient(
             token=token,
@@ -99,7 +110,7 @@ class BlogLlmClient:
             return _extract_message_content(response)
         except Exception as exc:
             logger.warning("HuggingFace blog completion failed model=%s error=%s", model, exc)
-            return ""
+            return [], ""
         finally:
             await _safe_close(client)
 
@@ -115,11 +126,11 @@ async def _safe_close(client: Any | None) -> None:
         await result
 
 
-def _extract_message_content(response: Any) -> str:
+def _extract_message_content(response: Any) -> tuple[list[Any], str]:
     choices = getattr(response, "choices", None)
     if not choices:
-        return ""
+        return [], ""
     first_choice = choices[0]
-    message = getattr(first_choice, "message", None)
+    message = getattr(first_choice, "message", {"content": ""})
     content = getattr(message, "content", "")
-    return str(content or "").strip()
+    return choices, str(content or "").strip()
