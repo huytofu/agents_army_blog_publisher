@@ -21,22 +21,30 @@ MISSION:
 Create a local static HTML article artifact that reads well on the Entourage blog.
 
 VALUE-ADDED RESPONSIBILITIES:
-- Improve web readability & accessibility without changing the core meaning of the post.
+- Improve web readability & accessibility while preserving the majority of sentences and words.
 - Normalize paragraph spacing, heading flow, and list formatting before rendering.
-- Preserve the majority of sentences and words. Do not add new sections or paragraphs.
 - Minor presentation or aesthetics related edits are encouraged. You may have the freedom to:
-1. Add illustration tables.
-2. Highlight key phrases or words (bold/italic).
+1. Highlight key phrases or words with supported Markdown emphasis or semantic highlights.
+2. Add short allowlisted callouts when they clarify an existing point.
 3. Extract key terms (not title) into standalone subheaders.
 4. Break down long paragraphs into smaller bullet points/numbered lists.
-5. Add callouts/visual cues/section dividers/footnotes to improve readability.
+5. Add visual cues, section dividers, and footnotes with the supported presentation syntax below.
 
 BOUNDARIES:
 - Do not access S3. 
 - Do not invoke any write tools.
+- Do not add new sections or paragraphs.
 - Do not invent new product claims, medical claims, or unrelated sections.
-- Do not output raw HTML tags in `body_markdown`; the local writer converts Markdown to HTML later.
+- Do not output raw HTML tags such as `<div>`, `<aside>`, `<span>`, `<mark>`, `<hr>`, `<sup>`, `<section>` in `body_markdown`.
 - Do not include literal raw newlines or other control characters inside JSON strings.
+
+ALLOWLISTED PRESENTATION SYNTAX:
+- Use `==highlighted text==` for a subtle semantic highlight. Do not use `<mark>` or `<span>`.
+- Use `---` on its own line for a section divider.
+- Use a callout block only in this exact shape:
+  `:::callout type="reflection" title="Pause here"\nShort existing idea, rewritten as a concise note.\n:::`
+- Supported callout `type` values: `note`, `reflection`, `practice`, `warning`.
+- Use footnotes as `A sentence with a note.[^1]` and define them later as `[^1]: Short note text.`
 
 MARKDOWN FORMAT RULES:
 - Use `**bolded text**` for bold emphasis. Do not use `<strong>` or `</strong>`.
@@ -45,7 +53,6 @@ MARKDOWN FORMAT RULES:
 - Use `1. item text`, `2. item text`, etc. for numbered lists.
 - Keep each list item on its own line. Do not output `<ul>`, `<ol>`, or `<li>` tags.
 - Keep supporting image placeholders exactly as-is, such as `{image_001.jpg}`.
-
 OUTPUT:
 Do not add any text before or after the JSON.
 Return ONLY valid JSON with:
@@ -54,7 +61,7 @@ Return ONLY valid JSON with:
   "presentation_notes": ["short note"]
 }
 
-JSON SAFETY:
+JSON SAFETY RULES:
 - Return one JSON object only. Do not wrap it in Markdown fences.
 - Escape all line breaks as `\\n`, tabs as `\\t`, quotes as `\\"`, and backslashes as `\\\\`.
 """

@@ -304,6 +304,11 @@ def render_article_html(post: ExpandedPost) -> str:
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
         .content-note, .reference-list {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .callout {{ background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 12px; margin: 1.5rem 0; padding: 1rem 1.25rem; }}
+        .callout h4 {{ margin: 0 0 0.5rem; }}
+        .section-divider {{ border: 0; border-top: 1px solid #e5e7eb; margin: 2rem 0; }}
+        .semantic-highlight {{ background: #fef3c7; border-radius: 4px; padding: 0.05rem 0.2rem; }}
+        .footnotes {{ border-top: 1px solid #e5e7eb; color: #4b5563; font-size: 0.95rem; margin-top: 2rem; padding-top: 1rem; }}
         .subscribe-cta, .comments-section, .related-posts, .share-actions {{ background: #eef2ff; border-radius: 14px; margin-top: 2rem; padding: 1rem 1.25rem; }}
         .comments-section, .share-actions {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
         .share-actions a {{ display: inline-block; margin-right: 0.75rem; }}
@@ -341,6 +346,7 @@ def markdown_to_html(
     blocks: list[str] = []
     list_items: list[str] = []
     list_tag: str | None = None
+    footnotes: list[tuple[str, str]] = []
     supporting_image_by_filename = {
         image.filename: image for image in supporting_images or []
     }
@@ -360,10 +366,18 @@ def markdown_to_html(
         list_tag = tag
         list_items.append(f"<li>{_inline_markdown(value)}</li>")
 
-    for raw_line in markdown.splitlines():
-        line = raw_line.strip()
+    lines = markdown.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
         if not line:
             flush_list()
+            continue
+        footnote_match = re.fullmatch(r"\[\^([A-Za-z0-9_-]+)\]:\s+(.+)", line)
+        if footnote_match:
+            flush_list()
+            footnotes.append((footnote_match.group(1), footnote_match.group(2)))
             continue
         placeholder_match = re.fullmatch(r"\{(image_\d{3}\.jpg)\}", line)
         if placeholder_match and placeholder_match.group(1) in supporting_image_by_filename:
@@ -376,6 +390,21 @@ def markdown_to_html(
                 f'<img class="supporting-image" src="{filename}" alt="{alt_text}">'
                 "</figure>"
             )
+            continue
+        if callout_match := re.fullmatch(r":::callout(?:\s+(.+))?", line):
+            flush_list()
+            callout_lines: list[str] = []
+            while index < len(lines):
+                callout_line = lines[index].strip()
+                index += 1
+                if callout_line == ":::":
+                    break
+                callout_lines.append(callout_line)
+            blocks.append(_render_callout(callout_match.group(1) or "", callout_lines))
+            continue
+        if line == "---":
+            flush_list()
+            blocks.append('<hr class="section-divider">')
             continue
         if line.startswith("### "):
             flush_list()
@@ -398,6 +427,8 @@ def markdown_to_html(
             blocks.append(f"<p>{_inline_markdown(line)}</p>")
 
     flush_list()
+    if footnotes:
+        blocks.append(_render_footnotes(footnotes))
     return "\n            ".join(blocks)
 
 
@@ -405,7 +436,55 @@ def _inline_markdown(value: str) -> str:
     escaped = html.escape(value)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
+    escaped = re.sub(
+        r"==(.+?)==",
+        r'<mark class="semantic-highlight">\1</mark>',
+        escaped,
+    )
+    escaped = re.sub(
+        r"\[\^([A-Za-z0-9_-]+)\]",
+        lambda match: _render_footnote_reference(match.group(1)),
+        escaped,
+    )
     return escaped
+
+
+def _render_callout(attributes: str, lines: list[str]) -> str:
+    callout_type = _callout_attribute(attributes, "type") or "note"
+    callout_type = re.sub(r"[^a-z0-9_-]+", "-", callout_type.lower()).strip("-") or "note"
+    title = _callout_attribute(attributes, "title")
+    title_html = f"<h4>{_inline_markdown(title)}</h4>" if title else ""
+    body_html = "".join(
+        f"<p>{_inline_markdown(line)}</p>"
+        for line in lines
+        if line.strip()
+    )
+    return f'<aside class="callout callout-{html.escape(callout_type)}">{title_html}{body_html}</aside>'
+
+
+def _callout_attribute(attributes: str, name: str) -> str:
+    match = re.search(rf'{re.escape(name)}="([^"]*)"', attributes)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _render_footnote_reference(label: str) -> str:
+    safe_label = _footnote_label(label)
+    return f'<sup id="fnref-{safe_label}"><a href="#fn-{safe_label}">{html.escape(label)}</a></sup>'
+
+
+def _render_footnotes(footnotes: list[tuple[str, str]]) -> str:
+    items = "".join(
+        f'<li id="fn-{_footnote_label(label)}">{_inline_markdown(text)} '
+        f'<a href="#fnref-{_footnote_label(label)}" aria-label="Back to content">Back</a></li>'
+        for label, text in footnotes
+    )
+    return f'<section class="footnotes"><h2>Footnotes</h2><ol>{items}</ol></section>'
+
+
+def _footnote_label(label: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", label).strip("-") or "note"
 
 
 def _article_tags(post: ExpandedPost) -> list[str]:
