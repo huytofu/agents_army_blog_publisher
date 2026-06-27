@@ -39,15 +39,19 @@ class BlogLlmClient:
         """Return assistant text from the first successful configured provider."""
         choices, response = await self._try_together(messages)
         if DEBUG:
+            print(f"Together last message: {messages[-1]}")
             print(f"Together choices: {choices}")
             print(f"Together response: {response}")
+            print("*********************************************")
         if response:
             return response
 
         choices, response = await self._try_huggingface(messages, self.config.get("HF_MODEL", ""))
         if DEBUG:
+            print(f"HuggingFace last message: {messages[-1]}")
             print(f"HuggingFace choices: {choices}")
             print(f"HuggingFace response: {response}")
+            print("*********************************************")
         if response:
             return response
 
@@ -55,8 +59,10 @@ class BlogLlmClient:
             choices, response = await self._try_huggingface(messages, fallback_model)
             if DEBUG:
                 print(f"HuggingFace fallback model: {fallback_model}")
+                print(f"HuggingFace last message: {messages[-1]}")
                 print(f"HuggingFace choices: {choices}")
                 print(f"HuggingFace response: {response}")
+                print("*********************************************")
             if response:
                 return response
 

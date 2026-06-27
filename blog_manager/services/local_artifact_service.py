@@ -340,14 +340,25 @@ def markdown_to_html(
     """Convert a conservative Markdown subset into static HTML."""
     blocks: list[str] = []
     list_items: list[str] = []
+    list_tag: str | None = None
     supporting_image_by_filename = {
         image.filename: image for image in supporting_images or []
     }
 
     def flush_list() -> None:
+        nonlocal list_tag
         if list_items:
-            blocks.append("<ul>" + "".join(list_items) + "</ul>")
+            tag = list_tag or "ul"
+            blocks.append(f"<{tag}>" + "".join(list_items) + f"</{tag}>")
             list_items.clear()
+        list_tag = None
+
+    def append_list_item(tag: str, value: str) -> None:
+        nonlocal list_tag
+        if list_tag and list_tag != tag:
+            flush_list()
+        list_tag = tag
+        list_items.append(f"<li>{_inline_markdown(value)}</li>")
 
     for raw_line in markdown.splitlines():
         line = raw_line.strip()
@@ -379,7 +390,9 @@ def markdown_to_html(
             flush_list()
             blocks.append(f"<blockquote>{_inline_markdown(line[2:])}</blockquote>")
         elif line.startswith("- "):
-            list_items.append(f"<li>{_inline_markdown(line[2:])}</li>")
+            append_list_item("ul", line[2:])
+        elif ordered_match := re.fullmatch(r"\d+\.\s+(.+)", line):
+            append_list_item("ol", ordered_match.group(1))
         else:
             flush_list()
             blocks.append(f"<p>{_inline_markdown(line)}</p>")

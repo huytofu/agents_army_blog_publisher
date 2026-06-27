@@ -24,10 +24,9 @@ VALUE-ADDED RESPONSIBILITIES:
 - Improve web readability & accessibility without changing the core meaning of the post.
 - Normalize paragraph spacing, heading flow, and list formatting before rendering.
 - Preserve the majority of sentences and words. Do not add new sections or paragraphs.
-- Preserve supporting image placeholder lines exactly as-is, such as `{image_001.jpg}`.
 - Minor presentation or aesthetics related edits are encouraged. You may have the freedom to:
 1. Add illustration tables.
-2. Highlight key phrases or words in different stylings (colors/sizes/fonts/bold/italic).
+2. Highlight key phrases or words (bold/italic).
 3. Extract key terms (not title) into standalone subheaders.
 4. Break down long paragraphs into smaller bullet points/numbered lists.
 5. Add callouts/visual cues/section dividers/footnotes to improve readability.
@@ -36,7 +35,16 @@ BOUNDARIES:
 - Do not access S3. 
 - Do not invoke any write tools.
 - Do not invent new product claims, medical claims, or unrelated sections.
+- Do not output raw HTML tags in `body_markdown`; the local writer converts Markdown to HTML later.
 - Do not include literal raw newlines or other control characters inside JSON strings.
+
+MARKDOWN FORMAT RULES:
+- Use `**bolded text**` for bold emphasis. Do not use `<strong>` or `</strong>`.
+- Use `*emphasized text*` for italic emphasis. Do not use `<em>` or `</em>`.
+- Use `- item text` for unordered bullet lists.
+- Use `1. item text`, `2. item text`, etc. for numbered lists.
+- Keep each list item on its own line. Do not output `<ul>`, `<ol>`, or `<li>` tags.
+- Keep supporting image placeholders exactly as-is, such as `{image_001.jpg}`.
 
 OUTPUT:
 Do not add any text before or after the JSON.
@@ -139,8 +147,9 @@ def _normalize_markdown_flow(markdown: str) -> str:
             previous_blank = True
             continue
 
-        if re.fullmatch(r"\d+[.)]\s+.+", stripped):
-            stripped = "- " + re.sub(r"^\d+[.)]\s+", "", stripped)
+        numbered_paren_match = re.fullmatch(r"(\d+)\)\s+(.+)", stripped)
+        if numbered_paren_match:
+            stripped = f"{numbered_paren_match.group(1)}. {numbered_paren_match.group(2)}"
 
         if normalized and stripped.startswith(("# ", "## ", "### ")) and normalized[-1] != "":
             normalized.append("")
