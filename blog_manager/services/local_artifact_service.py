@@ -18,7 +18,7 @@ from typing import Protocol
 from urllib.parse import quote, urljoin
 from urllib.request import Request, urlopen
 
-from blog_manager.config import BLOG_STORAGE_CONFIG, IMAGE_CONFIG
+from blog_manager.config import BLOG_API_CONFIG, BLOG_STORAGE_CONFIG, IMAGE_CONFIG
 from blog_manager.constants import (
     COVER_IMAGE_CONTENT_TYPE,
     COVER_IMAGE_FILENAME,
@@ -34,6 +34,8 @@ except Exception:  # pragma: no cover - optional until image provider is enabled
     Together = None
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_BLOG_API_BASE_URL = "https://461utcww9c.execute-api.ap-southeast-1.amazonaws.com"
 
 _PLACEHOLDER_JPEG_BASE64 = (
     "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
@@ -274,6 +276,8 @@ def render_article_html(post: ExpandedPost) -> str:
     content_note = _render_safety_notes(post.safety_notes)
     references = _render_citation_suggestions(post.citation_suggestions)
     growth_sections = _render_growth_sections(post)
+    blog_api_base_url = html.escape(_blog_api_base_url())
+    subscribe_script = _render_subscribe_script()
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -282,6 +286,7 @@ def render_article_html(post: ExpandedPost) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{seo_title}</title>
     <meta name="description" content="{seo_description}">
+    <meta name="blog-api-base-url" content="{blog_api_base_url}">
     <link rel="canonical" href="{article_url}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{seo_title}">
@@ -310,6 +315,13 @@ def render_article_html(post: ExpandedPost) -> str:
         .semantic-highlight {{ background: #fef3c7; border-radius: 4px; padding: 0.05rem 0.2rem; }}
         .footnotes {{ border-top: 1px solid #e5e7eb; color: #4b5563; font-size: 0.95rem; margin-top: 2rem; padding-top: 1rem; }}
         .subscribe-cta, .comments-section, .related-posts, .share-actions {{ background: #eef2ff; border-radius: 14px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .subscribe-cta form {{ display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }}
+        .subscribe-cta input {{ border: 1px solid #c7d2fe; border-radius: 999px; flex: 1 1 220px; font: inherit; padding: 0.8rem 1rem; }}
+        .subscribe-cta button {{ background: #6366f1; border: none; border-radius: 999px; color: white; cursor: pointer; font: inherit; font-weight: 800; padding: 0.8rem 1.2rem; }}
+        .subscribe-status {{ border-radius: 12px; font-size: 0.95rem; font-weight: 600; margin: 0.75rem 0 0; padding: 0.85rem 1rem; }}
+        .subscribe-status[hidden] {{ display: none; }}
+        .subscribe-status.is-success {{ background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; }}
+        .subscribe-status.is-error {{ background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }}
         .comments-section, .share-actions {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
         .share-actions a {{ display: inline-block; margin-right: 0.75rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
@@ -332,6 +344,7 @@ def render_article_html(post: ExpandedPost) -> str:
         </article>
         {growth_sections}
     </main>
+{subscribe_script}
 </body>
 </html>
 """
@@ -597,9 +610,10 @@ def _render_growth_sections(post: ExpandedPost) -> str:
             <p>Get one weekly highlight, no spam. We send the strongest reflection from the ENTOURAGE blog each week.</p>
             <form data-blog-api-placeholder="subscribe" action="#" method="post">
                 <label for="subscriber-email">Email address</label>
-                <input id="subscriber-email" name="email" type="email" placeholder="you@example.com" autocomplete="email">
+                <input id="subscriber-email" name="email" type="email" placeholder="you@example.com" autocomplete="email" required>
                 <button type="submit">Subscribe</button>
             </form>
+            <p id="subscribeStatus" class="subscribe-status" role="status" aria-live="polite" hidden></p>
         </section>
         <section id="comments" class="comments-section" data-blog-api-placeholder="comments" data-post-slug="{slug}">
             <h2>Join the conversation</h2>
@@ -617,6 +631,91 @@ def _render_growth_sections(post: ExpandedPost) -> str:
             <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
         </section>
     """
+
+
+def _render_subscribe_script() -> str:
+    return """    <script>
+        (function () {
+            const BLOG_API_BASE_URL = (
+                document.querySelector('meta[name="blog-api-base-url"]')?.content || ''
+            ).replace(/\\/$/, '');
+
+            const subscribeStatusEl = document.getElementById('subscribeStatus');
+
+            function showSubscribeStatus(message, type) {
+                if (!subscribeStatusEl) return;
+                subscribeStatusEl.hidden = false;
+                subscribeStatusEl.textContent = message;
+                subscribeStatusEl.classList.remove('is-success', 'is-error');
+                subscribeStatusEl.classList.add(type === 'error' ? 'is-error' : 'is-success');
+            }
+
+            function clearSubscribeStatus() {
+                if (!subscribeStatusEl) return;
+                subscribeStatusEl.hidden = true;
+                subscribeStatusEl.textContent = '';
+                subscribeStatusEl.classList.remove('is-success', 'is-error');
+            }
+
+            function wireSubscribeForm() {
+                const subscribeForm = document.querySelector('form[data-blog-api-placeholder="subscribe"]');
+                if (!subscribeForm) return;
+
+                subscribeForm.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    clearSubscribeStatus();
+                    if (!BLOG_API_BASE_URL) {
+                        showSubscribeStatus('Subscription is not configured yet. Please try again later.', 'error');
+                        return;
+                    }
+
+                    const emailInput = subscribeForm.querySelector('input[name="email"]');
+                    const email = (emailInput?.value || '').trim();
+                    if (!email) {
+                        showSubscribeStatus('Please enter your email address.', 'error');
+                        return;
+                    }
+
+                    const button = subscribeForm.querySelector('button[type="submit"]');
+                    if (button) button.disabled = true;
+
+                    try {
+                        const response = await fetch(`${BLOG_API_BASE_URL}/blog/subscribers`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email }),
+                        });
+                        if (!response.ok) {
+                            throw new Error(`Subscribe failed with status ${response.status}`);
+                        }
+
+                        showSubscribeStatus(
+                            'Thanks — your request is registered. Check your email to confirm your subscription.',
+                            'success'
+                        );
+                        subscribeForm.reset();
+                    } catch (error) {
+                        console.error(error);
+                        showSubscribeStatus(
+                            'We could not save your subscription right now. Please try again later.',
+                            'error'
+                        );
+                    } finally {
+                        if (button) button.disabled = false;
+                    }
+                });
+            }
+
+            wireSubscribeForm();
+        })();
+    </script>"""
+
+
+def _blog_api_base_url() -> str:
+    configured = str(BLOG_API_CONFIG.get("API_BASE_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    return _DEFAULT_BLOG_API_BASE_URL
 
 
 def _site_url() -> str:
