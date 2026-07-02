@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 
-from blog_manager.api.routers.dependencies import get_repository
+from blog_manager.api.routers.dependencies import get_repository, get_settings
+from blog_manager.api.subscriber_email import (
+    build_subscription_confirm_url,
+    send_subscription_confirmation_email,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/blog/subscribers", tags=["blog-subscribers"])
 
@@ -17,8 +25,22 @@ class SubscribeRequest(BaseModel):
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 def subscribe(payload: SubscribeRequest, request: Request) -> dict[str, str]:
     repository = get_repository(request)
+    settings = get_settings(request)
     subscriber = repository.upsert_subscriber(email=str(payload.email))
-    repository.create_email_token(email=subscriber.email, purpose="confirm_subscription")
+    email_token = repository.create_email_token(email=subscriber.email, purpose="confirm_subscription")
+    confirm_url = build_subscription_confirm_url(
+        settings=settings,
+        request=request,
+        token=email_token.token,
+    )
+    try:
+        send_subscription_confirmation_email(to_email=subscriber.email, confirm_url=confirm_url)
+    except RuntimeError as exc:
+        logger.exception("Subscription confirmation email failed for email=%s", subscriber.email)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send subscription confirmation email.",
+        ) from exc
     return {"status": "pending_confirmation"}
 
 
