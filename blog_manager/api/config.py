@@ -15,6 +15,11 @@ class BlogApiSettings(BaseModel):
     access_token_ttl_minutes: int = 60
     cors_origins: list[str] = Field(default_factory=list)
     mongo_uri: str = ""
+    mongo_username: str = ""
+    mongo_password: str = ""
+    mongo_auth_mechanism: str = "SCRAM-SHA-256"
+    mongo_require_auth: bool = True
+    mongo_auth_source: str = "admin"
     mongo_database: str = "entourage_blog"
     users_collection: str = "blog_users"
     comments_collection: str = "blog_comments"
@@ -34,6 +39,11 @@ class BlogApiSettings(BaseModel):
             access_token_ttl_minutes=BLOG_API_CONFIG["ACCESS_TOKEN_TTL_MINUTES"],
             cors_origins=BLOG_API_CONFIG["CORS_ORIGINS"],
             mongo_uri=BLOG_API_CONFIG["MONGODB_URI"],
+            mongo_username=BLOG_API_CONFIG["MONGODB_USERNAME"],
+            mongo_password=BLOG_API_CONFIG["MONGODB_PASSWORD"],
+            mongo_auth_mechanism=BLOG_API_CONFIG["MONGODB_AUTH_MECHANISM"],
+            mongo_require_auth=BLOG_API_CONFIG["MONGODB_REQUIRE_AUTH"],
+            mongo_auth_source=BLOG_API_CONFIG["MONGODB_AUTH_SOURCE"],
             mongo_database=BLOG_API_CONFIG["MONGODB_DATABASE"],
             users_collection=BLOG_API_CONFIG["USERS_COLLECTION"],
             comments_collection=BLOG_API_CONFIG["COMMENTS_COLLECTION"],

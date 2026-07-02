@@ -1,5 +1,6 @@
 boto3
 bcrypt
+certifi
 email-validator
 fastapi
 huggingface-hub
@@ -9,4 +10,6 @@ pymongo
 pyjwt
 python-dotenv
 PyYAML
-together
+pillow==12.2.0
+together==2.21.0
+

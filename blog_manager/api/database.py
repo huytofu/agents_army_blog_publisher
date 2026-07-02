@@ -2,24 +2,76 @@
 
 from __future__ import annotations
 
+import urllib.parse
 from functools import lru_cache
 
+import certifi
 from pymongo import ASCENDING, MongoClient
 from pymongo.database import Database
 
 from blog_manager.api.config import BlogApiSettings
 from blog_manager.api.repositories import MongoBlogRepository
 
+_MONGO_CLIENT_KWARGS = {
+    "tls": True,
+    "tlsCAFile": certifi.where(),
+    "tlsAllowInvalidCertificates": False,
+    "tlsAllowInvalidHostnames": False,
+    "maxPoolSize": 50,
+    "minPoolSize": 5,
+    "maxIdleTimeMS": 30000,
+    "serverSelectionTimeoutMS": 5000,
+    "connectTimeoutMS": 10000,
+    "socketTimeoutMS": 20000,
+    "retryWrites": True,
+    "retryReads": True,
+}
+
 
 @lru_cache(maxsize=1)
-def get_mongo_client(mongo_uri: str) -> MongoClient:
-    if not mongo_uri.strip():
+def get_mongo_client(
+    connection_string: str,
+    username: str,
+    password: str,
+    require_auth: bool,
+    auth_mechanism: str,
+    auth_source: str,
+) -> MongoClient:
+    if not connection_string.strip():
         raise RuntimeError("BLOG_API_MONGODB_URI is required for the blog API.")
-    return MongoClient(mongo_uri)
+
+    if (
+        connection_string.startswith("mongodb+srv://")
+        and username
+        and password
+        and require_auth
+    ):
+        encoded_username = urllib.parse.quote_plus(username)
+        encoded_password = urllib.parse.quote_plus(password)
+        uri_parts = connection_string.replace("mongodb+srv://", "")
+        connection_uri = f"mongodb+srv://{encoded_username}:{encoded_password}{uri_parts}"
+        return MongoClient(connection_uri, **_MONGO_CLIENT_KWARGS)
+
+    connection_params: dict = {"host": connection_string}
+    if username and password and require_auth:
+        connection_params["username"] = username
+        connection_params["password"] = password
+        connection_params["authSource"] = auth_source
+        connection_params["authMechanism"] = auth_mechanism
+
+    return MongoClient(**connection_params, **_MONGO_CLIENT_KWARGS)
 
 
 def get_database(settings: BlogApiSettings) -> Database:
-    return get_mongo_client(settings.mongo_uri)[settings.mongo_database]
+    client = get_mongo_client(
+        settings.mongo_uri,
+        settings.mongo_username,
+        settings.mongo_password,
+        settings.mongo_require_auth,
+        settings.mongo_auth_mechanism,
+        settings.mongo_auth_source,
+    )
+    return client[settings.mongo_database]
 
 
 def build_mongo_repository(settings: BlogApiSettings) -> MongoBlogRepository:

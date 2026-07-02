@@ -9,4 +9,4 @@ Core architecture:
 ## Documentation
 
 - `PIPELINE.md`: agent workflow, graph structure, ReAct decisions, and permission boundaries.
-- `DEPLOYMENT.md`: Lambda container deployment with EventBridge Scheduler, IAM, environment variables, rollout, rollback, and Fargate fallback.
+- `DEPLOYMENT.md`: Lambda container deployment with EventBridge Scheduler, IAM, environment variables, rollout, rollback, weekly digest Lambda handler override, and Fargate fallback.
