@@ -9,7 +9,7 @@ from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from blog_manager.api.repositories import BlogRepository
+from blog_manager.api.repositories import BlogRepository, MongoBlogRepository
 from blog_manager.api.mongo_security import sanitize_text
 
 class EmailMessage(TypedDict):
@@ -74,7 +74,7 @@ def parse_weekly_highlight(value: Mapping[str, object]) -> WeeklyHighlight:
 
 def run_weekly_highlight_email_job(
     *,
-    repository: BlogRepository,
+    repository: BlogRepository | MongoBlogRepository,
     highlight: Mapping[str, object],
     send_email: EmailSender | None = None,
 ) -> dict[str, int]:
@@ -92,13 +92,14 @@ def run_weekly_highlight_email_job(
     sent = 0
     skipped = 0
     for subscriber in repository.list_confirmed_subscribers():
-        attempted += 1
-        if repository.has_digest_send(email=subscriber.email, highlight_slug=slug):
-            skipped += 1
-            continue
-        resolved_sender(_build_message(to_email=subscriber.email, highlight=parsed_highlight))
-        repository.record_digest_send(email=subscriber.email, highlight_slug=slug)
-        sent += 1
+        if subscriber is not None:
+            attempted += 1
+            if repository.has_digest_send(email=subscriber.email, highlight_slug=slug):
+                skipped += 1
+                continue
+            resolved_sender(_build_message(to_email=subscriber.email, highlight=parsed_highlight))
+            repository.record_digest_send(email=subscriber.email, highlight_slug=slug)
+            sent += 1
     return {"attempted": attempted, "sent": sent, "skipped": skipped}
 
 

@@ -8,7 +8,7 @@ from typing import Any
 
 from blog_manager.api.config import BlogApiSettings
 from blog_manager.api.database import build_mongo_repository
-from blog_manager.api.repositories import BlogRepository
+from blog_manager.api.repositories import BlogRepository, MongoBlogRepository
 from blog_manager.api.weekly_email_worker import run_weekly_highlight_email_job
 from blog_manager.config import BLOG_STORAGE_CONFIG, SERVER_CONFIG
 from blog_manager.services import S3BlogStore
@@ -24,7 +24,7 @@ class WeeklyDigestJobError(RuntimeError):
 def run_weekly_digest_job(
     *,
     s3_store: S3BlogStore | None = None,
-    repository: BlogRepository | None = None,
+    repository: BlogRepository| MongoBlogRepository | None = None,
     settings: BlogApiSettings | None = None,
 ) -> dict[str, int]:
     """Load the weekly highlight artifact and send digest emails to subscribers."""

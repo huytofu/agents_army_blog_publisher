@@ -25,6 +25,7 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=3, max_length=64)
+    email: EmailStr
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -62,7 +63,12 @@ def verify_email(token: str, request: Request) -> dict[str, str]:
 def login(payload: LoginRequest, request: Request) -> dict[str, str]:
     repository = get_repository(request)
     settings = get_settings(request)
-    user = repository.find_user_by_username(payload.username)
+    if not payload.email and not payload.username:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email or username is required.")
+    if payload.email:
+        user = repository.find_user_by_email(payload.email)
+    else:
+        user = repository.find_user_by_username(payload.username)
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
     return {
