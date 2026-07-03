@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from blog_manager.api.auth_email import build_verify_email_url, send_verification_email
 from blog_manager.api.models import BlogUser
@@ -24,9 +24,22 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=64)
-    email: EmailStr
+    username: str | None = Field(default=None, min_length=3, max_length=64)
+    email: EmailStr | None = Field(default=None)
     password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("username", "email", mode="before")
+    @classmethod
+    def _empty_identifier_to_none(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _require_username_or_email(self) -> LoginRequest:
+        if not self.email and not self.username:
+            raise ValueError("Email or username is required.")
+        return self
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -63,14 +76,17 @@ def verify_email(token: str, request: Request) -> dict[str, str]:
 def login(payload: LoginRequest, request: Request) -> dict[str, str]:
     repository = get_repository(request)
     settings = get_settings(request)
-    if not payload.email and not payload.username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email or username is required.")
+
     if payload.email:
-        user = repository.find_user_by_email(payload.email)
+        user = repository.find_user_by_email(str(payload.email))
     else:
-        user = repository.find_user_by_username(payload.username)
+        user = repository.find_user_by_username(payload.username or "")
+
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username, email, or password.",
+        )
     return {
         "access_token": create_access_token(user_id=user.id, settings=settings),
         "token_type": "bearer",
