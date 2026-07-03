@@ -40,6 +40,7 @@ class BlogComment:
     moderation_reason: str
     created_at: datetime
     updated_at: datetime
+    parent_id: str | None = None
 
 
 @dataclass(frozen=True)

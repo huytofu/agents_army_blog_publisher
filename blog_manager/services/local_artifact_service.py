@@ -277,7 +277,7 @@ def render_article_html(post: ExpandedPost) -> str:
     references = _render_citation_suggestions(post.citation_suggestions)
     growth_sections = _render_growth_sections(post)
     blog_api_base_url = html.escape(_blog_api_base_url())
-    subscribe_script = _render_subscribe_script()
+    article_script = _render_article_script(post)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -287,6 +287,7 @@ def render_article_html(post: ExpandedPost) -> str:
     <title>{seo_title}</title>
     <meta name="description" content="{seo_description}">
     <meta name="blog-api-base-url" content="{blog_api_base_url}">
+    <link rel="stylesheet" href="../blog-client.css">
     <link rel="canonical" href="{article_url}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{seo_title}">
@@ -344,7 +345,7 @@ def render_article_html(post: ExpandedPost) -> str:
         </article>
         {growth_sections}
     </main>
-{subscribe_script}
+{article_script}
 </body>
 </html>
 """
@@ -617,8 +618,17 @@ def _render_growth_sections(post: ExpandedPost) -> str:
         </section>
         <section id="comments" class="comments-section" data-blog-api-placeholder="comments" data-post-slug="{slug}">
             <h2>Join the conversation</h2>
-            <p>What did this bring up for you? Sign in to leave a moderated comment once the blog API is connected.</p>
-            <div class="comments-list" aria-live="polite"></div>
+            <p>What did this bring up for you? Share a moderated reflection with the ENTOURAGE community.</p>
+            <div id="commentsAuthState" class="comments-auth-state blog-auth-state"></div>
+            <div id="commentsGuestPrompt" class="comments-guest-prompt">
+                <a href="../login.html">Sign in to comment</a>
+            </div>
+            <form id="commentComposer" class="comment-composer" hidden>
+                <textarea name="body" maxlength="2000" required placeholder="Share your reflection..."></textarea>
+                <button type="submit">Post comment</button>
+            </form>
+            <div id="commentsList" class="comments-list" aria-live="polite"></div>
+            <p id="commentStatus" class="comment-status" role="status" aria-live="polite" hidden></p>
         </section>
         <section class="related-posts" data-related-category="{html.escape(post.category)}" data-related-tags="{html.escape(','.join(post.tags))}">
             <h2>Related reflections</h2>
@@ -633,81 +643,16 @@ def _render_growth_sections(post: ExpandedPost) -> str:
     """
 
 
-def _render_subscribe_script() -> str:
-    return """    <script>
-        (function () {
-            const BLOG_API_BASE_URL = (
-                document.querySelector('meta[name="blog-api-base-url"]')?.content || ''
-            ).replace(/\\/$/, '');
-
-            const subscribeStatusEl = document.getElementById('subscribeStatus');
-
-            function showSubscribeStatus(message, type) {
-                if (!subscribeStatusEl) return;
-                subscribeStatusEl.hidden = false;
-                subscribeStatusEl.textContent = message;
-                subscribeStatusEl.classList.remove('is-success', 'is-error');
-                subscribeStatusEl.classList.add(type === 'error' ? 'is-error' : 'is-success');
-            }
-
-            function clearSubscribeStatus() {
-                if (!subscribeStatusEl) return;
-                subscribeStatusEl.hidden = true;
-                subscribeStatusEl.textContent = '';
-                subscribeStatusEl.classList.remove('is-success', 'is-error');
-            }
-
-            function wireSubscribeForm() {
-                const subscribeForm = document.querySelector('form[data-blog-api-placeholder="subscribe"]');
-                if (!subscribeForm) return;
-
-                subscribeForm.addEventListener('submit', async (event) => {
-                    event.preventDefault();
-                    clearSubscribeStatus();
-                    if (!BLOG_API_BASE_URL) {
-                        showSubscribeStatus('Subscription is not configured yet. Please try again later.', 'error');
-                        return;
-                    }
-
-                    const emailInput = subscribeForm.querySelector('input[name="email"]');
-                    const email = (emailInput?.value || '').trim();
-                    if (!email) {
-                        showSubscribeStatus('Please enter your email address.', 'error');
-                        return;
-                    }
-
-                    const button = subscribeForm.querySelector('button[type="submit"]');
-                    if (button) button.disabled = true;
-
-                    try {
-                        const response = await fetch(`${BLOG_API_BASE_URL}/blog/subscribers`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email }),
-                        });
-                        if (!response.ok) {
-                            throw new Error(`Subscribe failed with status ${response.status}`);
-                        }
-
-                        showSubscribeStatus(
-                            'Thanks — your request is registered. Check your email to confirm your subscription.',
-                            'success'
-                        );
-                        subscribeForm.reset();
-                    } catch (error) {
-                        console.error(error);
-                        showSubscribeStatus(
-                            'We could not save your subscription right now. Please try again later.',
-                            'error'
-                        );
-                    } finally {
-                        if (button) button.disabled = false;
-                    }
-                });
-            }
-
-            wireSubscribeForm();
-        })();
+def _render_article_script(post: ExpandedPost) -> str:
+    slug_js = json.dumps(post.slug)
+    return f"""    <script src="../blog-client.js"></script>
+    <script>
+        BlogClient.wireSubscribeForm();
+        BlogClient.renderAuthBanner(document.getElementById('commentsAuthState'));
+        BlogClient.renderCommentsSection({{
+            postSlug: {slug_js},
+            rootEl: document.getElementById('comments')
+        }});
     </script>"""
 
 

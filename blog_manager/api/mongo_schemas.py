@@ -64,6 +64,11 @@ class BlogCommentDocument(MongoDocument):
     body: str = Field(description="Plain-text comment body.", min_length=1, max_length=2000)
     status: Literal["pending", "approved", "rejected"] = Field(description="Moderation status.")
     moderation_reason: str = Field(description="Deterministic moderation/admin reason code.")
+    parent_id: str | None = Field(
+        default=None,
+        description="Parent comment id for direct replies. Null for top-level comments.",
+        json_schema_extra={"foreign_key": "blog_comments.id"},
+    )
     created_at: datetime = Field(default_factory=utc_now, description="UTC creation timestamp.")
     updated_at: datetime = Field(default_factory=utc_now, description="UTC last update timestamp.")
 

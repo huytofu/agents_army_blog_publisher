@@ -70,7 +70,11 @@ class BlogRepository(Protocol):
         body: str,
         status: str,
         moderation_reason: str,
+        parent_id: str | None = None,
     ) -> BlogComment:
+        ...
+
+    def find_comment_by_id(self, comment_id: str) -> BlogComment | None:
         ...
 
     def list_approved_comments(self, post_slug: str) -> list[BlogComment]:
@@ -184,6 +188,7 @@ class InMemoryBlogRepository:
         body: str,
         status: str,
         moderation_reason: str,
+        parent_id: str | None = None,
     ) -> BlogComment:
         now = utc_now()
         comment = BlogComment(
@@ -196,6 +201,7 @@ class InMemoryBlogRepository:
             moderation_reason=moderation_reason,
             created_at=now,
             updated_at=now,
+            parent_id=parent_id,
         )
         self.comments[comment.id] = comment
         if status == "approved":
@@ -204,6 +210,9 @@ class InMemoryBlogRepository:
                 approved_comment_count=author.approved_comment_count + 1,
             )
         return comment
+
+    def find_comment_by_id(self, comment_id: str) -> BlogComment | None:
+        return self.comments.get(comment_id)
 
     def list_approved_comments(self, post_slug: str) -> list[BlogComment]:
         comments = [
@@ -346,6 +355,7 @@ class MongoBlogRepository:
         body: str,
         status: str,
         moderation_reason: str,
+        parent_id: str | None = None,
     ) -> BlogComment:
         now = utc_now()
         comment = BlogComment(
@@ -358,6 +368,7 @@ class MongoBlogRepository:
             moderation_reason=moderation_reason,
             created_at=now,
             updated_at=now,
+            parent_id=parent_id,
         )
         self.comments.insert_one(comment_document_from_model(comment).to_mongo_document())
         if status == "approved":
@@ -367,7 +378,10 @@ class MongoBlogRepository:
             )
         return comment
 
-    def list_approved_comments(self, post_slug: str) -> list[BlogComment]:
+    def find_comment_by_id(self, comment_id: str) -> BlogComment | None:
+        return _comment_from_document(self.comments.find_one(build_safe_eq_query("id", comment_id)))
+
+    def list_approved_comments(self, post_slug: str) -> list[BlogComment| None]:
         cursor = self.comments.find(
             {
                 **build_safe_eq_query("post_slug", post_slug),
@@ -398,7 +412,7 @@ class MongoBlogRepository:
             )
         return updated
 
-    def upsert_subscriber(self, *, email: str) -> BlogSubscriber:
+    def upsert_subscriber(self, *, email: str) -> BlogSubscriber | None:
         normalized = _normalize_email(email)
         now = utc_now()
         insert_doc = BlogSubscriberDocument(
@@ -442,7 +456,7 @@ class MongoBlogRepository:
         )
         return _subscriber_from_document(result)
 
-    def list_confirmed_subscribers(self) -> list[BlogSubscriber]:
+    def list_confirmed_subscribers(self) -> list[BlogSubscriber | None]:
         cursor = self.subscribers.find({"status": "confirmed"}).sort("email", 1)
         return [_subscriber_from_document(item) for item in cursor]
 

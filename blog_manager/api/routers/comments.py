@@ -14,6 +14,7 @@ router = APIRouter(prefix="/blog", tags=["blog-comments"])
 
 class CommentCreateRequest(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+    parent_id: str | None = Field(default=None, max_length=64)
 
 
 @router.get("/posts/{post_slug}/comments")
@@ -31,13 +32,20 @@ def create_comment(
 ) -> dict[str, object]:
     if not user.email_verified:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email verification required.")
+    repository = get_repository(request)
+    parent_id = _validate_parent_comment(
+        repository=repository,
+        post_slug=post_slug,
+        parent_id=payload.parent_id,
+    )
     decision = determine_initial_comment_status(user, payload.body)
-    comment = get_repository(request).create_comment(
+    comment = repository.create_comment(
         post_slug=post_slug,
         author=user,
         body=payload.body,
         status=decision.status,
         moderation_reason=decision.reason,
+        parent_id=parent_id,
     )
     return _public_comment(comment, include_status=True)
 
@@ -76,6 +84,30 @@ def reject_comment(
     return _public_comment(comment, include_status=True)
 
 
+def _validate_parent_comment(
+    *,
+    repository,
+    post_slug: str,
+    parent_id: str | None,
+) -> str | None:
+    if parent_id is None:
+        return None
+    parent = repository.find_comment_by_id(parent_id)
+    if parent is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Parent comment not found.")
+    if parent.post_slug != post_slug.strip().casefold():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Parent comment belongs to a different post.",
+        )
+    if parent.parent_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Replies to replies are not supported.",
+        )
+    return parent.id
+
+
 def _public_comment(comment: BlogComment, *, include_status: bool = False) -> dict[str, object]:
     payload: dict[str, object] = {
         "id": comment.id,
@@ -83,6 +115,7 @@ def _public_comment(comment: BlogComment, *, include_status: bool = False) -> di
         "author_username": comment.author_username,
         "body": comment.body,
         "created_at": comment.created_at.isoformat(),
+        "parent_id": comment.parent_id,
     }
     if include_status:
         payload["status"] = comment.status

@@ -87,6 +87,7 @@ def ensure_indexes(database: Database, settings: BlogApiSettings) -> None:
 
     comments = database[settings.comments_collection]
     comments.create_index([("post_slug", ASCENDING), ("status", ASCENDING), ("created_at", ASCENDING)])
+    comments.create_index([("post_slug", ASCENDING), ("parent_id", ASCENDING), ("created_at", ASCENDING)])
     comments.create_index([("author_user_id", ASCENDING), ("created_at", ASCENDING)])
 
     subscribers = database[settings.subscribers_collection]
