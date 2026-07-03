@@ -137,11 +137,16 @@ class LocalArtifactService:
         self.work_root = Path(work_root or BLOG_STORAGE_CONFIG["LOCAL_WORK_ROOT"]).resolve()
         self.image_provider = image_provider or ConfiguredImageProvider()
 
-    def write_article_html(self, post: ExpandedPost) -> LocalArtifact:
+    def write_article_html(
+        self,
+        post: ExpandedPost,
+        *,
+        posts_feed: list[dict[str, object]] | None = None,
+    ) -> LocalArtifact:
         """Render and write a static article HTML file under the post slug."""
         slug = _validate_slug(post.slug)
         output_path = self._post_dir(slug) / POST_HTML_FILENAME
-        html_text = render_article_html(post)
+        html_text = render_article_html(post, posts_feed=posts_feed)
         _write_text(output_path, html_text)
         return LocalArtifact(
             local_path=str(output_path),
@@ -256,7 +261,11 @@ class LocalArtifactService:
         return resolved
 
 
-def render_article_html(post: ExpandedPost) -> str:
+def render_article_html(
+    post: ExpandedPost,
+    *,
+    posts_feed: list[dict[str, object]] | None = None,
+) -> str:
     """Render a complete static HTML article from expanded post content."""
     title = html.escape(post.title)
     excerpt = html.escape(post.excerpt)
@@ -275,7 +284,7 @@ def render_article_html(post: ExpandedPost) -> str:
     structured_data = _structured_data_scripts(post)
     content_note = _render_safety_notes(post.safety_notes)
     references = _render_citation_suggestions(post.citation_suggestions)
-    growth_sections = _render_growth_sections(post)
+    growth_sections = _render_growth_sections(post, posts_feed=posts_feed)
     blog_api_base_url = html.escape(_blog_api_base_url())
     article_script = _render_article_script(post)
 
@@ -600,11 +609,101 @@ def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
     )
 
 
-def _render_growth_sections(post: ExpandedPost) -> str:
+def _normalize_tag_set(tags: object) -> set[str]:
+    if not isinstance(tags, list):
+        return set()
+    normalized: set[str] = set()
+    for item in tags:
+        tag = str(item or "").strip().casefold()
+        if tag:
+            normalized.add(tag)
+    return normalized
+
+
+def _select_related_posts(
+    post: ExpandedPost,
+    posts_feed: list[dict[str, object]] | None,
+    *,
+    limit: int = 4,
+) -> list[dict[str, object]]:
+    """Pick up to `limit` related posts from the blog feed metadata."""
+    if not posts_feed or limit <= 0:
+        return []
+
+    current_slug = post.slug
+    current_category = str(post.category or "").strip().casefold()
+    current_tags = _normalize_tag_set(post.tags)
+    ranked: list[tuple[tuple[int, int, str, str], dict[str, object]]] = []
+
+    for entry in posts_feed:
+        slug = str(entry.get("slug") or "").strip()
+        if not slug or slug == current_slug:
+            continue
+
+        entry_category = str(entry.get("category") or "").strip().casefold()
+        entry_tags = _normalize_tag_set(entry.get("tags"))
+        category_match = bool(current_category and entry_category == current_category)
+        shared_tag_count = len(current_tags & entry_tags)
+        if not category_match and shared_tag_count == 0:
+            continue
+
+        title = str(entry.get("title") or "Untitled Post")
+        date = str(entry.get("date") or "")
+        ranked.append(
+            (
+                (int(category_match), shared_tag_count, date, title.casefold()),
+                dict(entry),
+            )
+        )
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [entry for _, entry in ranked[:limit]]
+
+
+def _related_post_href(entry: dict[str, object]) -> str:
+    slug = str(entry.get("slug") or "").strip()
+    content_path = str(entry.get("contentPath") or f"blog/{slug}/index.html").strip()
+    if content_path.startswith("blog/"):
+        content_path = content_path[len("blog/") :]
+    return f"../{content_path}"
+
+
+def _render_related_posts(
+    post: ExpandedPost,
+    posts_feed: list[dict[str, object]] | None,
+) -> str:
+    related = _select_related_posts(post, posts_feed)
+    if not related:
+        return """
+        <section class="related-posts">
+            <h2>Related reflections</h2>
+            <p>No related reflections yet.</p>
+        </section>"""
+
+    items = "".join(
+        f'<li><a href="{html.escape(_related_post_href(entry))}">'
+        f'{html.escape(str(entry.get("title") or "Untitled Post"))}</a></li>'
+        for entry in related
+    )
+    return f"""
+        <section class="related-posts">
+            <h2>Related reflections</h2>
+            <ul class="related-posts-list">
+                {items}
+            </ul>
+        </section>"""
+
+
+def _render_growth_sections(
+    post: ExpandedPost,
+    *,
+    posts_feed: list[dict[str, object]] | None = None,
+) -> str:
     title = html.escape(post.title)
     slug = html.escape(post.slug)
     subject = quote(post.title)
     article_path = quote(_article_url(post), safe=":/")
+    related_posts = _render_related_posts(post, posts_feed)
     return f"""
         <section class="subscribe-cta">
             <h2>Get the weekly highlight</h2>
@@ -620,9 +719,6 @@ def _render_growth_sections(post: ExpandedPost) -> str:
             <h2>Join the conversation</h2>
             <p>What did this bring up for you? Share a moderated reflection with the ENTOURAGE community.</p>
             <div id="commentsAuthState" class="comments-auth-state blog-auth-state"></div>
-            <div id="commentsGuestPrompt" class="comments-guest-prompt">
-                <a href="../login.html">Sign in to comment</a>
-            </div>
             <form id="commentComposer" class="comment-composer" hidden>
                 <textarea name="body" maxlength="2000" required placeholder="Share your reflection..."></textarea>
                 <button type="submit">Post comment</button>
@@ -630,13 +726,11 @@ def _render_growth_sections(post: ExpandedPost) -> str:
             <div id="commentsList" class="comments-list" aria-live="polite"></div>
             <p id="commentStatus" class="comment-status" role="status" aria-live="polite" hidden></p>
         </section>
-        <section class="related-posts" data-related-category="{html.escape(post.category)}" data-related-tags="{html.escape(','.join(post.tags))}">
-            <h2>Related reflections</h2>
-            <p>Related posts will be selected from the same category and tags in <code>blog/posts.json</code>.</p>
-        </section>
+        {related_posts}
         <section class="share-actions">
             <h2>Share this post</h2>
             <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
+            <a href="https://www.facebook.com/sharer/sharer.php?u={article_path}">Share on Facebook</a>
             <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
             <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
         </section>

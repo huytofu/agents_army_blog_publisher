@@ -84,6 +84,7 @@ class HtmlAgent:
         *,
         instructions: str = "",
         prior_errors: list[str] | None = None,
+        posts_feed: list[dict[str, object]] | None = None,
     ) -> LocalArtifact:
         """Create `index.html` locally after a presentation polish pass."""
         polished_post, notes = await self._prepare_post_for_html(
@@ -91,7 +92,7 @@ class HtmlAgent:
             instructions=instructions,
             prior_errors=prior_errors or [],
         )
-        artifact = self.html_tool.write_article_html(polished_post)
+        artifact = self.html_tool.write_article_html(polished_post, posts_feed=posts_feed)
         artifact.metadata.update(
             {
                 "presentation_agent": "html_subagent",

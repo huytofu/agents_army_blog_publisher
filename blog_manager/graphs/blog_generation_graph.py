@@ -165,8 +165,9 @@ class BlogGenerationWorkflow:
             instructions=image_instructions,
             retry_count=state.image_retry_count,
         )
+        posts_feed = self._read_posts_feed_for_related_posts()
         html_result, image_result = await asyncio.gather(
-            self.run_html_subgraph(html_state),
+            self.run_html_subgraph(html_state, posts_feed=posts_feed),
             self.run_image_subgraph(image_state),
         )
 
@@ -181,7 +182,12 @@ class BlogGenerationWorkflow:
             errors=[*state.errors, *html_result.errors, *image_result.errors],
         )
 
-    async def run_html_subgraph(self, state: HtmlArtifactState) -> HtmlArtifactState:
+    async def run_html_subgraph(
+        self,
+        state: HtmlArtifactState,
+        *,
+        posts_feed: list[dict[str, object]] | None = None,
+    ) -> HtmlArtifactState:
         max_retries = int(self.config["SUBAGENT_MAX_RETRIES"])
         current = state
         while current.retry_count <= max_retries:
@@ -190,6 +196,7 @@ class BlogGenerationWorkflow:
                     current.expanded_post,
                     instructions=current.instructions,
                     prior_errors=current.errors,
+                    posts_feed=posts_feed,
                 )
                 errors = self.artifact_service.validate_artifact(
                     artifact,
@@ -330,6 +337,15 @@ class BlogGenerationWorkflow:
     def _require_s3_store(self) -> None:
         if self.s3_store is None:
             raise BlogGraphError("S3 store is required for publisher graph nodes.")
+
+    def _read_posts_feed_for_related_posts(self) -> list[dict[str, object]]:
+        if self.s3_store is None:
+            return []
+        try:
+            return self.s3_store.read_posts_feed()
+        except Exception as exc:
+            logger.warning("Could not read posts feed for related posts: %s", exc)
+            return []
 
 
 def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) -> Any:
