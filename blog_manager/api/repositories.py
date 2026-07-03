@@ -209,6 +209,11 @@ class InMemoryBlogRepository:
                 author,
                 approved_comment_count=author.approved_comment_count + 1,
             )
+        elif status == "rejected":
+            self.users[author.id] = replace(
+                author,
+                recent_rejection_count=author.recent_rejection_count + 1,
+            )
         return comment
 
     def find_comment_by_id(self, comment_id: str) -> BlogComment | None:
@@ -232,6 +237,11 @@ class InMemoryBlogRepository:
             self.users[author.id] = replace(
                 author,
                 approved_comment_count=author.approved_comment_count + 1,
+            )
+        elif author and status == "rejected" and comment.status != "rejected":
+            self.users[author.id] = replace(
+                author,
+                recent_rejection_count=author.recent_rejection_count + 1,
             )
         return updated
 
@@ -376,6 +386,11 @@ class MongoBlogRepository:
                 build_safe_eq_query("id", author.id),
                 build_safe_inc_update({"approved_comment_count": 1}),
             )
+        elif status == "rejected":
+            self.users.update_one(
+                build_safe_eq_query("id", author.id),
+                build_safe_inc_update({"recent_rejection_count": 1}),
+            )
         return comment
 
     def find_comment_by_id(self, comment_id: str) -> BlogComment | None:
@@ -409,6 +424,11 @@ class MongoBlogRepository:
             self.users.update_one(
                 build_safe_eq_query("id", updated.author_user_id),
                 build_safe_inc_update({"approved_comment_count": 1}),
+            )
+        elif updated and status == "rejected" and existing.status != "rejected":
+            self.users.update_one(
+                build_safe_eq_query("id", updated.author_user_id),
+                build_safe_inc_update({"recent_rejection_count": 1}),
             )
         return updated
 

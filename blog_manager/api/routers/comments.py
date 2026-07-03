@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from blog_manager.api.models import BlogComment, BlogUser
-from blog_manager.api.moderation import determine_initial_comment_status
+from blog_manager.api.moderation import determine_comment_status
 from blog_manager.api.routers.dependencies import get_current_user, get_repository, require_admin
 
 router = APIRouter(prefix="/blog", tags=["blog-comments"])
@@ -24,7 +24,7 @@ def list_comments(post_slug: str, request: Request) -> dict[str, list[dict[str, 
 
 
 @router.post("/posts/{post_slug}/comments", status_code=status.HTTP_201_CREATED)
-def create_comment(
+async def create_comment(
     post_slug: str,
     payload: CommentCreateRequest,
     request: Request,
@@ -38,7 +38,7 @@ def create_comment(
         post_slug=post_slug,
         parent_id=payload.parent_id,
     )
-    decision = determine_initial_comment_status(user, payload.body)
+    decision = await determine_comment_status(user, payload.body)
     comment = repository.create_comment(
         post_slug=post_slug,
         author=user,
