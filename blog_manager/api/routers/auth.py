@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 
+from blog_manager.api.auth_email import build_verify_email_url, send_verification_email
 from blog_manager.api.models import BlogUser
 from blog_manager.api.routers.dependencies import get_current_user, get_repository, get_settings
 from blog_manager.api.security import create_access_token, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/blog/auth", tags=["blog-auth"])
 
@@ -33,7 +38,12 @@ def register(payload: RegisterRequest, request: Request) -> dict[str, str]:
         email=str(payload.email),
         password_hash=hash_password(payload.password),
     )
-    repository.create_email_token(email=user.email, purpose="verify_email")
+    email_token = repository.create_email_token(email=user.email, purpose="verify_email")
+    verify_url = build_verify_email_url(token=email_token.token)
+    try:
+        send_verification_email(to_email=user.email, verify_url=verify_url)
+    except Exception:
+        logger.exception("Blog verification email failed for email=%s", user.email)
     return {"status": "verification_required"}
 
 
