@@ -333,7 +333,11 @@ def render_article_html(
         .subscribe-status.is-success {{ background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; }}
         .subscribe-status.is-error {{ background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }}
         .comments-section, .share-actions {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
-        .share-actions a {{ display: inline-block; margin-right: 0.75rem; }}
+        .share-actions h2 {{ margin: 0 0 0.75rem; }}
+        .share-copy-row {{ margin-bottom: 0.75rem; }}
+        .share-links {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem 0.75rem; }}
+        .share-links a {{ display: inline-block; }}
+        .copy-link-button {{ background: #6366f1; border: none; border-radius: 999px; color: white; cursor: pointer; font: inherit; font-weight: 700; padding: 0.4rem 0.9rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
         p {{ margin: 1rem 0; }}
         a {{ color: #4f46e5; }}
@@ -579,10 +583,15 @@ def _json_ld_script(payload: dict[str, object]) -> str:
     return f'    <script type="application/ld+json">\n{json_text}\n    </script>'
 
 
+_MAX_SAFETY_NOTES = 2
+_MAX_CITATION_SUGGESTIONS = 2
+
+
 def _render_safety_notes(safety_notes: list[str]) -> str:
     items = [str(item or "").strip() for item in safety_notes if str(item or "").strip()]
     if not items:
         return ""
+    items = items[:_MAX_SAFETY_NOTES]
     list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
     return (
         '<section class="content-note">'
@@ -598,6 +607,7 @@ def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
     items = [str(item or "").strip() for item in citation_suggestions if str(item or "").strip()]
     if not items:
         return ""
+    items = items[:_MAX_CITATION_SUGGESTIONS]
     list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
     return (
         '<section class="reference-list">'
@@ -702,7 +712,11 @@ def _render_growth_sections(
     title = html.escape(post.title)
     slug = html.escape(post.slug)
     subject = quote(post.title)
-    article_path = quote(_article_url(post), safe=":/")
+    article_url = _article_url(post)
+    article_path = quote(article_url, safe=":/")
+    share_url_attr = html.escape(article_url, quote=True)
+    # WhatsApp expects a single pre-composed message (title + link) as `text`.
+    whatsapp_text = quote(f"{post.title} {article_url}")
     related_posts = _render_related_posts(post, posts_feed)
     return f"""
         <section class="subscribe-cta">
@@ -729,10 +743,18 @@ def _render_growth_sections(
         {related_posts}
         <section class="share-actions">
             <h2>Share this post</h2>
-            <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
-            <a href="https://www.facebook.com/sharer/sharer.php?u={article_path}">Share on Facebook</a>
-            <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
-            <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
+            <div class="share-copy-row">
+                <button type="button" class="copy-link-button" data-copy-link="{share_url_attr}" onclick="var b=this;var t=b.textContent;navigator.clipboard.writeText(b.dataset.copyLink).then(function(){{b.textContent='Link copied!';setTimeout(function(){{b.textContent=t;}},2000);}});">Copy link</button>
+            </div>
+            <div class="share-links">
+                <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
+                <a href="https://www.facebook.com/sharer/sharer.php?u={article_path}">Share on Facebook</a>
+                <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
+                <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
+                <a href="https://api.whatsapp.com/send?text={whatsapp_text}" target="_blank" rel="noopener">Share on WhatsApp</a>
+                <a href="fb-messenger://share/?link={article_path}">Share on Messenger</a>
+                <a href="https://www.reddit.com/submit?url={article_path}&title={subject}" target="_blank" rel="noopener">Share on Reddit</a>
+            </div>
         </section>
     """
 

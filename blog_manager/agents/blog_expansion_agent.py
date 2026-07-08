@@ -137,8 +137,8 @@ a) Use the primary keyword naturally in the opening paragraph, `seo_title`, and 
 b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
 
 GOOD TO HAVE:
-- Include optional `safety_notes` for any claims or wording that should remain cautious. Omit the field if there are no useful notes.
-- Include optional `citation_suggestions` when relevant, such as credible books, researchers, or studies. Omit the field if there are no useful suggestions. 
+- Include maximum 2 optional reader-facing `safety_notes` for any claims that the reader should be cautious about. Omit the field if there are no useful notes.
+- Include maximum 2 optional reader-facing `citation_suggestions` for credible books, researchers, or studies. Omit the field if there are no useful suggestions. 
 
 BOUNDARIES:
 - Do not fabricate citations, URLs, people's names, study details, credentials.
