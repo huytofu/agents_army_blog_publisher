@@ -90,7 +90,7 @@ BLOG_STORAGE_CONFIG = {
     "ROBOTS_KEY": os.getenv("BLOG_ROBOTS_KEY", "robots.txt"),
     "STATIC_SITEMAP_PATHS": _list_env(
         "BLOG_STATIC_SITEMAP_PATHS",
-        ["", "blogs.html", "features.html", "pricing.html", "privacy.html", "terms.html", "refund.html"],
+        ["", "blogs.html", "features.html", "privacy.html", "terms.html", "refund.html"],
     ),
     "WEEKLY_HIGHLIGHT_KEY": os.getenv("BLOG_WEEKLY_HIGHLIGHT_KEY", "blog/weekly-highlight.json"),
     "LOCAL_WORK_ROOT": os.getenv("BLOG_LOCAL_WORK_ROOT", _local_work_root_default()),
