@@ -21,29 +21,49 @@ MISSION:
 Create a local static HTML article artifact that reads well on the Entourage blog.
 
 VALUE-ADDED RESPONSIBILITIES:
-- Improve web readability & accessibility without changing the core meaning of the post.
+- Improve web readability & accessibility while preserving the majority of sentences and words.
 - Normalize paragraph spacing, heading flow, and list formatting before rendering.
-- Preserve the majority of sentences and words. Do not add new sections or paragraphs.
-- Preserve supporting image placeholder lines exactly as-is, such as `{image_001.jpg}`.
-  These full-line markers are replaced with image tags by the local renderer after your pass.
 - Minor presentation or aesthetics related edits are encouraged. You may have the freedom to:
-1. Add illustration tables or diagrams like Mermaid diagrams
-2. Highlight key phrases or words in different stylings (colors/sizes/fonts/bold/italic)
-3. Extract key terms into standalone subheadings/subheaders
-4. Break down long paragraphs into smaller bullet points/numbered lists
-5. Add callouts/visual cues or breaks/section dividers/footnotes to improve readability or aesthetics
+1. Highlight key phrases or words with supported Markdown emphasis or semantic highlights.
+2. Add short allowlisted callouts when they clarify an existing point.
+3. Extract key terms (not title) into standalone subheaders.
+4. Break down long paragraphs into smaller bullet points/numbered lists.
+5. Add visual cues, section dividers, and footnotes with the supported presentation syntax below.
 
 BOUNDARIES:
-- Do not access S3.
+- Do not access S3. 
+- Do not invoke any write tools.
+- Do not add new sections or paragraphs.
 - Do not invent new product claims, medical claims, or unrelated sections.
-- Return only JSON for the preparation step. The graph will invoke the local write tool after your preparation.
+- Do not output raw HTML tags such as `<div>`, `<aside>`, `<span>`, `<mark>`, `<hr>`, `<sup>`, `<section>` in `body_markdown`.
+- Do not include literal raw newlines or other control characters inside JSON strings.
 
+ALLOWLISTED PRESENTATION SYNTAX:
+- Use `==highlighted text==` for a subtle semantic highlight. Do not use `<mark>` or `<span>`.
+- Use `---` on its own line for a section divider.
+- Use a callout block only in this exact shape:
+  `:::callout type="reflection" title="Pause here"\nShort existing idea, rewritten as a concise note.\n:::`
+- Supported callout `type` values: `note`, `reflection`, `practice`, `warning`.
+- Use footnotes as `A sentence with a note.[^1]` and define them later as `[^1]: Short note text.`
+
+MARKDOWN FORMAT RULES:
+- Use `**bolded text**` for bold emphasis. Do not use `<strong>` or `</strong>`.
+- Use `*emphasized text*` for italic emphasis. Do not use `<em>` or `</em>`.
+- Use `- item text` for unordered bullet lists.
+- Use `1. item text`, `2. item text`, etc. for numbered lists.
+- Keep each list item on its own line. Do not output `<ul>`, `<ol>`, or `<li>` tags.
+- Keep supporting image placeholders exactly as-is, such as `{image_001.jpg}`.
 OUTPUT:
+Do not add any text before or after the JSON.
 Return ONLY valid JSON with:
 {
-  "body_markdown": "presentation-polished markdown",
+  "body_markdown": "presentation-polished markdown - must be a single valid JSON string",
   "presentation_notes": ["short note"]
 }
+
+JSON SAFETY RULES:
+- Return one JSON object only. Do not wrap it in Markdown fences.
+- Escape all line breaks as `\\n`, tabs as `\\t`, quotes as `\\"`, and backslashes as `\\\\`.
 """
 
 
@@ -64,6 +84,7 @@ class HtmlAgent:
         *,
         instructions: str = "",
         prior_errors: list[str] | None = None,
+        posts_feed: list[dict[str, object]] | None = None,
     ) -> LocalArtifact:
         """Create `index.html` locally after a presentation polish pass."""
         polished_post, notes = await self._prepare_post_for_html(
@@ -71,7 +92,7 @@ class HtmlAgent:
             instructions=instructions,
             prior_errors=prior_errors or [],
         )
-        artifact = self.html_tool.write_article_html(polished_post)
+        artifact = self.html_tool.write_article_html(polished_post, posts_feed=posts_feed)
         artifact.metadata.update(
             {
                 "presentation_agent": "html_subagent",
@@ -134,8 +155,9 @@ def _normalize_markdown_flow(markdown: str) -> str:
             previous_blank = True
             continue
 
-        if re.fullmatch(r"\d+[.)]\s+.+", stripped):
-            stripped = "- " + re.sub(r"^\d+[.)]\s+", "", stripped)
+        numbered_paren_match = re.fullmatch(r"(\d+)\)\s+(.+)", stripped)
+        if numbered_paren_match:
+            stripped = f"{numbered_paren_match.group(1)}. {numbered_paren_match.group(2)}"
 
         if normalized and stripped.startswith(("# ", "## ", "### ")) and normalized[-1] != "":
             normalized.append("")
@@ -158,24 +180,31 @@ def _build_html_user_prompt(
         "post": {
             "title": post.title,
             "slug": post.slug,
-            "date": post.date,
             "excerpt": post.excerpt,
             "body_markdown": post.body_markdown,
-            "seo_title": post.seo_title,
-            "seo_description": post.seo_description,
-            "primary_keyword": post.primary_keyword,
-            "search_intent": post.search_intent,
-            "category": post.category,
-            "faq_items": post.faq_items,
-            "citation_suggestions": post.citation_suggestions,
-            "safety_notes": post.safety_notes,
-            "tags": post.tags,
+            "supporting_images": [
+                {"filename": image.filename} for image in post.supporting_images
+            ],
         },
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:
+    text = _clean_json_response(raw)
+    try:
+        parsed = _json_loads_lenient(text)
+    except json.JSONDecodeError as exc:
+        parsed = _parse_embedded_json_object(text)
+        if parsed is None:
+            raise exc
+
+    if not isinstance(parsed, dict):
+        raise ValueError("HTML subagent output must be a JSON object.")
+    return parsed
+
+
+def _clean_json_response(raw: str) -> str:
     text = (raw or "").strip()
     if text.startswith("```json"):
         text = text[7:]
@@ -183,10 +212,29 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
         text = text[3:]
     if text.endswith("```"):
         text = text[:-3]
-    parsed = json.loads(text.strip())
-    if not isinstance(parsed, dict):
-        raise ValueError("HTML subagent output must be a JSON object.")
-    return parsed
+    return text.strip()
+
+
+def _json_loads_lenient(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as strict_error:
+        try:
+            return json.loads(text, strict=False)
+        except json.JSONDecodeError:
+            raise strict_error
+
+
+def _parse_embedded_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder(strict=False)
+    for match in re.finditer(r"\{", text):
+        try:
+            parsed, _ = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def _string_list(value: Any) -> list[str]:

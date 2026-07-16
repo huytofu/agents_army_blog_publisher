@@ -15,9 +15,10 @@ import re
 import shutil
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import quote, urljoin
 from urllib.request import Request, urlopen
 
-from blog_manager.config import BLOG_STORAGE_CONFIG, IMAGE_CONFIG
+from blog_manager.config import BLOG_API_CONFIG, BLOG_STORAGE_CONFIG, IMAGE_CONFIG
 from blog_manager.constants import (
     COVER_IMAGE_CONTENT_TYPE,
     COVER_IMAGE_FILENAME,
@@ -33,6 +34,8 @@ except Exception:  # pragma: no cover - optional until image provider is enabled
     Together = None
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_BLOG_API_BASE_URL = "https://461utcww9c.execute-api.ap-southeast-1.amazonaws.com"
 
 _PLACEHOLDER_JPEG_BASE64 = (
     "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
@@ -134,11 +137,16 @@ class LocalArtifactService:
         self.work_root = Path(work_root or BLOG_STORAGE_CONFIG["LOCAL_WORK_ROOT"]).resolve()
         self.image_provider = image_provider or ConfiguredImageProvider()
 
-    def write_article_html(self, post: ExpandedPost) -> LocalArtifact:
+    def write_article_html(
+        self,
+        post: ExpandedPost,
+        *,
+        posts_feed: list[dict[str, object]] | None = None,
+    ) -> LocalArtifact:
         """Render and write a static article HTML file under the post slug."""
         slug = _validate_slug(post.slug)
         output_path = self._post_dir(slug) / POST_HTML_FILENAME
-        html_text = render_article_html(post)
+        html_text = render_article_html(post, posts_feed=posts_feed)
         _write_text(output_path, html_text)
         return LocalArtifact(
             local_path=str(output_path),
@@ -253,7 +261,11 @@ class LocalArtifactService:
         return resolved
 
 
-def render_article_html(post: ExpandedPost) -> str:
+def render_article_html(
+    post: ExpandedPost,
+    *,
+    posts_feed: list[dict[str, object]] | None = None,
+) -> str:
     """Render a complete static HTML article from expanded post content."""
     title = html.escape(post.title)
     excerpt = html.escape(post.excerpt)
@@ -261,6 +273,9 @@ def render_article_html(post: ExpandedPost) -> str:
     seo_description = html.escape(post.seo_description or post.excerpt)
     body = markdown_to_html(post.body_markdown, supporting_images=post.supporting_images)
     cover_path = html.escape(f"cover.jpg")
+    article_url = html.escape(_article_url(post))
+    cover_url = html.escape(_cover_image_url(post))
+    rss_url = html.escape(_rss_feed_url())
     article_tags = _article_tags(post)
     article_meta_tags = "\n".join(
         f'    <meta property="article:tag" content="{html.escape(tag)}">'
@@ -269,6 +284,9 @@ def render_article_html(post: ExpandedPost) -> str:
     structured_data = _structured_data_scripts(post)
     content_note = _render_safety_notes(post.safety_notes)
     references = _render_citation_suggestions(post.citation_suggestions)
+    growth_sections = _render_growth_sections(post, posts_feed=posts_feed)
+    blog_api_base_url = html.escape(_blog_api_base_url())
+    article_script = _render_article_script(post)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -277,15 +295,20 @@ def render_article_html(post: ExpandedPost) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{seo_title}</title>
     <meta name="description" content="{seo_description}">
+    <meta name="blog-api-base-url" content="{blog_api_base_url}">
+    <link rel="stylesheet" href="../blog-client.css">
+    <link rel="canonical" href="{article_url}">
     <meta property="og:type" content="article">
     <meta property="og:title" content="{seo_title}">
     <meta property="og:description" content="{seo_description}">
-    <meta property="og:image" content="{cover_path}">
+    <meta property="og:url" content="{article_url}">
+    <meta property="og:image" content="{cover_url}">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="{seo_title}">
     <meta name="twitter:description" content="{seo_description}">
-    <meta name="twitter:image" content="{cover_path}">
+    <meta name="twitter:image" content="{cover_url}">
     <meta property="article:published_time" content="{html.escape(post.date)}">
+    <link rel="alternate" type="application/rss+xml" title="ENTOURAGE Blog" href="{rss_url}">
 {article_meta_tags}
 {structured_data}
     <style>
@@ -295,8 +318,26 @@ def render_article_html(post: ExpandedPost) -> str:
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
-        .content-note {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
-        .reference-list {{ background: #f3f4f6; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .content-note, .reference-list {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .callout {{ background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 12px; margin: 1.5rem 0; padding: 1rem 1.25rem; }}
+        .callout h4 {{ margin: 0 0 0.5rem; }}
+        .section-divider {{ border: 0; border-top: 1px solid #e5e7eb; margin: 2rem 0; }}
+        .semantic-highlight {{ background: #fef3c7; border-radius: 4px; padding: 0.05rem 0.2rem; }}
+        .footnotes {{ border-top: 1px solid #e5e7eb; color: #4b5563; font-size: 0.95rem; margin-top: 2rem; padding-top: 1rem; }}
+        .subscribe-cta, .comments-section, .related-posts, .share-actions {{ background: #eef2ff; border-radius: 14px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .subscribe-cta form {{ display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }}
+        .subscribe-cta input {{ border: 1px solid #c7d2fe; border-radius: 999px; flex: 1 1 220px; font: inherit; padding: 0.8rem 1rem; }}
+        .subscribe-cta button {{ background: #6366f1; border: none; border-radius: 999px; color: white; cursor: pointer; font: inherit; font-weight: 800; padding: 0.8rem 1.2rem; }}
+        .subscribe-status {{ border-radius: 12px; font-size: 0.95rem; font-weight: 600; margin: 0.75rem 0 0; padding: 0.85rem 1rem; }}
+        .subscribe-status[hidden] {{ display: none; }}
+        .subscribe-status.is-success {{ background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46; }}
+        .subscribe-status.is-error {{ background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }}
+        .comments-section, .share-actions {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
+        .share-actions h2 {{ margin: 0 0 0.75rem; }}
+        .share-copy-row {{ margin-bottom: 0.75rem; }}
+        .share-links {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem 0.75rem; }}
+        .share-links a {{ display: inline-block; }}
+        .copy-link-button {{ background: #6366f1; border: none; border-radius: 999px; color: white; cursor: pointer; font: inherit; font-weight: 700; padding: 0.4rem 0.9rem; }}
         h1, h2, h3 {{ color: #111827; line-height: 1.25; }}
         p {{ margin: 1rem 0; }}
         a {{ color: #4f46e5; }}
@@ -315,7 +356,9 @@ def render_article_html(post: ExpandedPost) -> str:
             {content_note}
             {references}
         </article>
+        {growth_sections}
     </main>
+{article_script}
 </body>
 </html>
 """
@@ -329,19 +372,39 @@ def markdown_to_html(
     """Convert a conservative Markdown subset into static HTML."""
     blocks: list[str] = []
     list_items: list[str] = []
+    list_tag: str | None = None
+    footnotes: list[tuple[str, str]] = []
     supporting_image_by_filename = {
         image.filename: image for image in supporting_images or []
     }
 
     def flush_list() -> None:
+        nonlocal list_tag
         if list_items:
-            blocks.append("<ul>" + "".join(list_items) + "</ul>")
+            tag = list_tag or "ul"
+            blocks.append(f"<{tag}>" + "".join(list_items) + f"</{tag}>")
             list_items.clear()
+        list_tag = None
 
-    for raw_line in markdown.splitlines():
-        line = raw_line.strip()
+    def append_list_item(tag: str, value: str) -> None:
+        nonlocal list_tag
+        if list_tag and list_tag != tag:
+            flush_list()
+        list_tag = tag
+        list_items.append(f"<li>{_inline_markdown(value)}</li>")
+
+    lines = markdown.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
         if not line:
             flush_list()
+            continue
+        footnote_match = re.fullmatch(r"\[\^([A-Za-z0-9_-]+)\]:\s+(.+)", line)
+        if footnote_match:
+            flush_list()
+            footnotes.append((footnote_match.group(1), footnote_match.group(2)))
             continue
         placeholder_match = re.fullmatch(r"\{(image_\d{3}\.jpg)\}", line)
         if placeholder_match and placeholder_match.group(1) in supporting_image_by_filename:
@@ -355,12 +418,27 @@ def markdown_to_html(
                 "</figure>"
             )
             continue
+        if callout_match := re.fullmatch(r":::callout(?:\s+(.+))?", line):
+            flush_list()
+            callout_lines: list[str] = []
+            while index < len(lines):
+                callout_line = lines[index].strip()
+                index += 1
+                if callout_line == ":::":
+                    break
+                callout_lines.append(callout_line)
+            blocks.append(_render_callout(callout_match.group(1) or "", callout_lines))
+            continue
+        if line == "---":
+            flush_list()
+            blocks.append('<hr class="section-divider">')
+            continue
         if line.startswith("### "):
             flush_list()
-            blocks.append(f"<h3>{_inline_markdown(line[4:])}</h3>")
+            blocks.append(f"<h4>{_inline_markdown(line[4:])}</h4>")
         elif line.startswith("## "):
             flush_list()
-            blocks.append(f"<h2>{_inline_markdown(line[3:])}</h2>")
+            blocks.append(f"<h3>{_inline_markdown(line[3:])}</h3>")
         elif line.startswith("# "):
             flush_list()
             blocks.append(f"<h2>{_inline_markdown(line[2:])}</h2>")
@@ -368,12 +446,16 @@ def markdown_to_html(
             flush_list()
             blocks.append(f"<blockquote>{_inline_markdown(line[2:])}</blockquote>")
         elif line.startswith("- "):
-            list_items.append(f"<li>{_inline_markdown(line[2:])}</li>")
+            append_list_item("ul", line[2:])
+        elif ordered_match := re.fullmatch(r"\d+\.\s+(.+)", line):
+            append_list_item("ol", ordered_match.group(1))
         else:
             flush_list()
             blocks.append(f"<p>{_inline_markdown(line)}</p>")
 
     flush_list()
+    if footnotes:
+        blocks.append(_render_footnotes(footnotes))
     return "\n            ".join(blocks)
 
 
@@ -381,7 +463,55 @@ def _inline_markdown(value: str) -> str:
     escaped = html.escape(value)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
+    escaped = re.sub(
+        r"==(.+?)==",
+        r'<mark class="semantic-highlight">\1</mark>',
+        escaped,
+    )
+    escaped = re.sub(
+        r"\[\^([A-Za-z0-9_-]+)\]",
+        lambda match: _render_footnote_reference(match.group(1)),
+        escaped,
+    )
     return escaped
+
+
+def _render_callout(attributes: str, lines: list[str]) -> str:
+    callout_type = _callout_attribute(attributes, "type") or "note"
+    callout_type = re.sub(r"[^a-z0-9_-]+", "-", callout_type.lower()).strip("-") or "note"
+    title = _callout_attribute(attributes, "title")
+    title_html = f"<h4>{_inline_markdown(title)}</h4>" if title else ""
+    body_html = "".join(
+        f"<p>{_inline_markdown(line)}</p>"
+        for line in lines
+        if line.strip()
+    )
+    return f'<aside class="callout callout-{html.escape(callout_type)}">{title_html}{body_html}</aside>'
+
+
+def _callout_attribute(attributes: str, name: str) -> str:
+    match = re.search(rf'{re.escape(name)}="([^"]*)"', attributes)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _render_footnote_reference(label: str) -> str:
+    safe_label = _footnote_label(label)
+    return f'<sup id="fnref-{safe_label}"><a href="#fn-{safe_label}">{html.escape(label)}</a></sup>'
+
+
+def _render_footnotes(footnotes: list[tuple[str, str]]) -> str:
+    items = "".join(
+        f'<li id="fn-{_footnote_label(label)}">{_inline_markdown(text)} '
+        f'<a href="#fnref-{_footnote_label(label)}" aria-label="Back to content">Back</a></li>'
+        for label, text in footnotes
+    )
+    return f'<section class="footnotes"><h2>Footnotes</h2><ol>{items}</ol></section>'
+
+
+def _footnote_label(label: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", label).strip("-") or "note"
 
 
 def _article_tags(post: ExpandedPost) -> list[str]:
@@ -415,8 +545,8 @@ def _blog_posting_schema(post: ExpandedPost) -> dict[str, object]:
         "headline": post.seo_title or post.title,
         "description": post.seo_description or post.excerpt,
         "datePublished": post.date,
-        "image": f"blog/{post.slug}/cover.jpg",
-        "mainEntityOfPage": f"blog/{post.slug}/index.html",
+        "image": _cover_image_url(post),
+        "mainEntityOfPage": _article_url(post),
         "keywords": keywords,
         "articleSection": post.category,
     }
@@ -453,10 +583,15 @@ def _json_ld_script(payload: dict[str, object]) -> str:
     return f'    <script type="application/ld+json">\n{json_text}\n    </script>'
 
 
+_MAX_SAFETY_NOTES = 2
+_MAX_CITATION_SUGGESTIONS = 2
+
+
 def _render_safety_notes(safety_notes: list[str]) -> str:
     items = [str(item or "").strip() for item in safety_notes if str(item or "").strip()]
     if not items:
         return ""
+    items = items[:_MAX_SAFETY_NOTES]
     list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
     return (
         '<section class="content-note">'
@@ -472,6 +607,7 @@ def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
     items = [str(item or "").strip() for item in citation_suggestions if str(item or "").strip()]
     if not items:
         return ""
+    items = items[:_MAX_CITATION_SUGGESTIONS]
     list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
     return (
         '<section class="reference-list">'
@@ -481,6 +617,186 @@ def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
         "</ul>"
         "</section>"
     )
+
+
+def _normalize_tag_set(tags: object) -> set[str]:
+    if not isinstance(tags, list):
+        return set()
+    normalized: set[str] = set()
+    for item in tags:
+        tag = str(item or "").strip().casefold()
+        if tag:
+            normalized.add(tag)
+    return normalized
+
+
+def _select_related_posts(
+    post: ExpandedPost,
+    posts_feed: list[dict[str, object]] | None,
+    *,
+    limit: int = 4,
+) -> list[dict[str, object]]:
+    """Pick up to `limit` related posts from the blog feed metadata."""
+    if not posts_feed or limit <= 0:
+        return []
+
+    current_slug = post.slug
+    current_category = str(post.category or "").strip().casefold()
+    current_tags = _normalize_tag_set(post.tags)
+    ranked: list[tuple[tuple[int, int, str, str], dict[str, object]]] = []
+
+    for entry in posts_feed:
+        slug = str(entry.get("slug") or "").strip()
+        if not slug or slug == current_slug:
+            continue
+
+        entry_category = str(entry.get("category") or "").strip().casefold()
+        entry_tags = _normalize_tag_set(entry.get("tags"))
+        category_match = bool(current_category and entry_category == current_category)
+        shared_tag_count = len(current_tags & entry_tags)
+        if not category_match and shared_tag_count == 0:
+            continue
+
+        title = str(entry.get("title") or "Untitled Post")
+        date = str(entry.get("date") or "")
+        ranked.append(
+            (
+                (int(category_match), shared_tag_count, date, title.casefold()),
+                dict(entry),
+            )
+        )
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [entry for _, entry in ranked[:limit]]
+
+
+def _related_post_href(entry: dict[str, object]) -> str:
+    slug = str(entry.get("slug") or "").strip()
+    content_path = str(entry.get("contentPath") or f"blog/{slug}/index.html").strip()
+    if content_path.startswith("blog/"):
+        content_path = content_path[len("blog/") :]
+    return f"../{content_path}"
+
+
+def _render_related_posts(
+    post: ExpandedPost,
+    posts_feed: list[dict[str, object]] | None,
+) -> str:
+    related = _select_related_posts(post, posts_feed)
+    if not related:
+        return """
+        <section class="related-posts">
+            <h2>Related reflections</h2>
+            <p>No related reflections yet.</p>
+        </section>"""
+
+    items = "".join(
+        f'<li><a href="{html.escape(_related_post_href(entry))}">'
+        f'{html.escape(str(entry.get("title") or "Untitled Post"))}</a></li>'
+        for entry in related
+    )
+    return f"""
+        <section class="related-posts">
+            <h2>Related reflections</h2>
+            <ul class="related-posts-list">
+                {items}
+            </ul>
+        </section>"""
+
+
+def _render_growth_sections(
+    post: ExpandedPost,
+    *,
+    posts_feed: list[dict[str, object]] | None = None,
+) -> str:
+    title = html.escape(post.title)
+    slug = html.escape(post.slug)
+    subject = quote(post.title)
+    article_url = _article_url(post)
+    article_path = quote(article_url, safe=":/")
+    share_url_attr = html.escape(article_url, quote=True)
+    # WhatsApp expects a single pre-composed message (title + link) as `text`.
+    whatsapp_text = quote(f"{post.title} {article_url}")
+    related_posts = _render_related_posts(post, posts_feed)
+    return f"""
+        <section class="subscribe-cta">
+            <h2>Get the weekly highlight</h2>
+            <p>Get one weekly highlight, no spam. We send the strongest reflection from the ENTOURAGE blog each week.</p>
+            <form data-blog-api-placeholder="subscribe" action="#" method="post">
+                <label for="subscriber-email">Email address</label>
+                <input id="subscriber-email" name="email" type="email" placeholder="you@example.com" autocomplete="email" required>
+                <button type="submit">Subscribe</button>
+            </form>
+            <p id="subscribeStatus" class="subscribe-status" role="status" aria-live="polite" hidden></p>
+        </section>
+        <section id="comments" class="comments-section" data-blog-api-placeholder="comments" data-post-slug="{slug}">
+            <h2>Join the conversation</h2>
+            <p>What did this bring up for you? Share a moderated reflection with the ENTOURAGE community.</p>
+            <div id="commentsAuthState" class="comments-auth-state blog-auth-state"></div>
+            <form id="commentComposer" class="comment-composer" hidden>
+                <textarea name="body" maxlength="2000" required placeholder="Share your reflection..."></textarea>
+                <button type="submit">Post comment</button>
+            </form>
+            <div id="commentsList" class="comments-list" aria-live="polite"></div>
+            <p id="commentStatus" class="comment-status" role="status" aria-live="polite" hidden></p>
+        </section>
+        {related_posts}
+        <section class="share-actions">
+            <h2>Share this post</h2>
+            <div class="share-copy-row">
+                <button type="button" class="copy-link-button" data-copy-link="{share_url_attr}" onclick="var b=this;var t=b.textContent;navigator.clipboard.writeText(b.dataset.copyLink).then(function(){{b.textContent='Link copied!';setTimeout(function(){{b.textContent=t;}},2000);}});">Copy link</button>
+            </div>
+            <div class="share-links">
+                <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
+                <a href="https://www.facebook.com/sharer/sharer.php?u={article_path}">Share on Facebook</a>
+                <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
+                <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
+                <a href="https://api.whatsapp.com/send?text={whatsapp_text}" target="_blank" rel="noopener">Share on WhatsApp</a>
+                <a href="fb-messenger://share/?link={article_path}">Share on Messenger</a>
+                <a href="https://www.reddit.com/submit?url={article_path}&title={subject}" target="_blank" rel="noopener">Share on Reddit</a>
+            </div>
+        </section>
+    """
+
+
+def _render_article_script(post: ExpandedPost) -> str:
+    slug_js = json.dumps(post.slug)
+    return f"""    <script src="../blog-client.js"></script>
+    <script>
+        BlogClient.wireSubscribeForm();
+        BlogClient.renderAuthBanner(document.getElementById('commentsAuthState'));
+        BlogClient.renderCommentsSection({{
+            postSlug: {slug_js},
+            rootEl: document.getElementById('comments')
+        }});
+    </script>"""
+
+
+def _blog_api_base_url() -> str:
+    configured = str(BLOG_API_CONFIG.get("API_BASE_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    return _DEFAULT_BLOG_API_BASE_URL
+
+
+def _site_url() -> str:
+    return str(BLOG_STORAGE_CONFIG.get("SITE_URL") or "https://www.entourage-ai.life").rstrip("/") + "/"
+
+
+def _absolute_url(path: str) -> str:
+    return urljoin(_site_url(), path.lstrip("/"))
+
+
+def _article_url(post: ExpandedPost) -> str:
+    return _absolute_url(f"blog/{post.slug}/index.html")
+
+
+def _cover_image_url(post: ExpandedPost) -> str:
+    return _absolute_url(f"blog/{post.slug}/{COVER_IMAGE_FILENAME}")
+
+
+def _rss_feed_url() -> str:
+    return _absolute_url(str(BLOG_STORAGE_CONFIG.get("RSS_KEY") or "blog/rss.xml"))
 
 
 def _first_response_item(response: object) -> object | None:

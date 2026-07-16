@@ -12,5 +12,10 @@ class HtmlWriteTool:
     def __init__(self, artifact_service: LocalArtifactService | None = None):
         self.artifact_service = artifact_service or LocalArtifactService()
 
-    def write_article_html(self, post: ExpandedPost) -> LocalArtifact:
-        return self.artifact_service.write_article_html(post)
+    def write_article_html(
+        self,
+        post: ExpandedPost,
+        *,
+        posts_feed: list[dict[str, object]] | None = None,
+    ) -> LocalArtifact:
+        return self.artifact_service.write_article_html(post, posts_feed=posts_feed)

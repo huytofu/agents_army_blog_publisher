@@ -11,10 +11,12 @@ from typing import Any, Callable
 
 from blog_manager.agents import (
     BlogExpansionAgent,
+    FaqGenerationAgent,
     BlogPipelineAgent,
     HtmlAgent,
     ImageAgent,
 )
+from blog_manager.agents.blog_pipeline_agent import build_pre_faq_generation_observation
 from blog_manager.config import WORKER_CONFIG
 from blog_manager.constants import (
     COVER_IMAGE_CONTENT_TYPE,
@@ -58,6 +60,7 @@ class BlogGenerationWorkflow:
         *,
         pipeline_agent: BlogPipelineAgent | None = None,
         expansion_agent: BlogExpansionAgent | None = None,
+        faq_agent: FaqGenerationAgent | None = None,
         html_agent: HtmlAgent | None = None,
         image_agent: ImageAgent | None = None,
         artifact_service: LocalArtifactService | None = None,
@@ -66,6 +69,7 @@ class BlogGenerationWorkflow:
     ):
         self.pipeline_agent = pipeline_agent or BlogPipelineAgent()
         self.expansion_agent = expansion_agent or BlogExpansionAgent()
+        self.faq_agent = faq_agent or FaqGenerationAgent()
         self.html_agent = html_agent or HtmlAgent()
         self.image_agent = image_agent or ImageAgent()
         self.artifact_service = artifact_service or LocalArtifactService()
@@ -115,6 +119,20 @@ class BlogGenerationWorkflow:
         decision = await self.pipeline_agent.review_content(state)
         return _with_decision(replace(state, main_round=state.main_round + 1), decision)
 
+    async def generate_faq_items(self, state: BlogGraphState) -> BlogGraphState:
+        if state.expanded_post is None:
+            return _append_error(state, "Cannot generate FAQ items without expanded content.")
+        try:
+            faq_items = await self.faq_agent.generate_faq_items(
+                build_pre_faq_generation_observation(state)
+            )
+        except Exception as exc:
+            return _append_error(state, f"FAQ generation failed: {exc}")
+        return replace(
+            state,
+            expanded_post=replace(state.expanded_post, faq_items=faq_items),
+        )
+
     async def finalize_subagents_plan(self, state: BlogGraphState) -> BlogGraphState:
         if state.expanded_post is None:
             return _append_error(state, "Cannot finalize subagent plan without expanded content.")
@@ -147,8 +165,9 @@ class BlogGenerationWorkflow:
             instructions=image_instructions,
             retry_count=state.image_retry_count,
         )
+        posts_feed = self._read_posts_feed_for_related_posts()
         html_result, image_result = await asyncio.gather(
-            self.run_html_subgraph(html_state),
+            self.run_html_subgraph(html_state, posts_feed=posts_feed),
             self.run_image_subgraph(image_state),
         )
 
@@ -163,7 +182,12 @@ class BlogGenerationWorkflow:
             errors=[*state.errors, *html_result.errors, *image_result.errors],
         )
 
-    async def run_html_subgraph(self, state: HtmlArtifactState) -> HtmlArtifactState:
+    async def run_html_subgraph(
+        self,
+        state: HtmlArtifactState,
+        *,
+        posts_feed: list[dict[str, object]] | None = None,
+    ) -> HtmlArtifactState:
         max_retries = int(self.config["SUBAGENT_MAX_RETRIES"])
         current = state
         while current.retry_count <= max_retries:
@@ -172,6 +196,7 @@ class BlogGenerationWorkflow:
                     current.expanded_post,
                     instructions=current.instructions,
                     prior_errors=current.errors,
+                    posts_feed=posts_feed,
                 )
                 errors = self.artifact_service.validate_artifact(
                     artifact,
@@ -264,6 +289,8 @@ class BlogGenerationWorkflow:
         self._require_s3_store()
         if not state.publish_ready or state.feed_entry is None or state.errors:
             return _append_error(state, "Feed update skipped: publish inputs are not ready.")
+        if self.s3_store is None:
+            return _append_error(state, "Feed update skipped: S3 store is not available.")
         self.s3_store.append_feed_entry(state.feed_entry)
         return state
 
@@ -274,6 +301,8 @@ class BlogGenerationWorkflow:
         self._require_s3_store()
         if state.html_artifact is None or not state.image_artifacts:
             return _append_error(state, "Asset upload skipped: artifacts are missing.")
+        if self.s3_store is None:
+            return _append_error(state, "Asset upload skipped: S3 store is not available.")
         self.s3_store.upload_local_artifact(state.html_artifact)
         for artifact in state.image_artifacts:
             self.s3_store.upload_local_artifact(artifact)
@@ -286,6 +315,8 @@ class BlogGenerationWorkflow:
         self._require_s3_store()
         if state.idea is None or state.expanded_post is None:
             return _append_error(state, "Mark processed skipped: idea or post is missing.")
+        if self.s3_store is None:
+            return _append_error(state, "Mark processed skipped: S3 store is not available.")
         self.s3_store.mark_idea_processed(
             state.idea,
             slug=state.expanded_post.slug,
@@ -307,6 +338,15 @@ class BlogGenerationWorkflow:
         if self.s3_store is None:
             raise BlogGraphError("S3 store is required for publisher graph nodes.")
 
+    def _read_posts_feed_for_related_posts(self) -> list[dict[str, object]]:
+        if self.s3_store is None:
+            return []
+        try:
+            return self.s3_store.read_posts_feed()
+        except Exception as exc:
+            logger.warning("Could not read posts feed for related posts: %s", exc)
+            return []
+
 
 def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) -> Any:
     """Build and compile the optional LangGraph workflow."""
@@ -320,6 +360,7 @@ def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) 
     graph.add_node("expand_content", wf.expand_content)
     graph.add_node("revise_content", wf.revise_content)
     graph.add_node("main_review_content", wf.main_review_content)
+    graph.add_node("generate_faq_items", wf.generate_faq_items)
     graph.add_node("finalize_subagents_plan", wf.finalize_subagents_plan)
     graph.add_node("run_artifact_branches", wf.run_artifact_branches)
     graph.add_node("main_review_artifacts", wf.main_review_artifacts)
@@ -346,11 +387,12 @@ def build_blog_generation_graph(workflow: BlogGenerationWorkflow | None = None) 
         route_content_review,
         {
             "revise_content": "revise_content",
-            "generate_artifacts": "finalize_subagents_plan",
+            "generate_artifacts": "generate_faq_items",
             "fail": "fail",
         },
     )
     graph.add_edge("revise_content", "main_review_content")
+    graph.add_edge("generate_faq_items", "finalize_subagents_plan")
     graph.add_conditional_edges(
         "finalize_subagents_plan",
         route_finalize_subagents_plan,

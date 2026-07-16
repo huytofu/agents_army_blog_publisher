@@ -71,7 +71,7 @@ class SupportingImage:
 
 @dataclass(frozen=True)
 class ExpandedPost:
-    """Structured output from the main expansion/orchestrator agent."""
+    """Structured post data; faq_items may be empty until schema generation."""
 
     title: str
     slug: str

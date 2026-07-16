@@ -10,6 +10,11 @@ from blog_manager.agents.blog_pipeline_agent import (
     BlogPipelineError,
     PIPELINE_SYSTEM_PROMPT,
 )
+from blog_manager.agents.faq_generation_agent import (
+    FAQ_GENERATION_PROMPT,
+    FaqGenerationAgent,
+    FaqGenerationError,
+)
 from blog_manager.agents.html_agent import HTML_SUBAGENT_PROMPT, HtmlAgent
 from blog_manager.agents.image_agent import IMAGE_SUBAGENT_PROMPT, ImageAgent
 
@@ -18,6 +23,9 @@ __all__ = [
     "BlogExpansionError",
     "BlogPipelineAgent",
     "BlogPipelineError",
+    "FAQ_GENERATION_PROMPT",
+    "FaqGenerationAgent",
+    "FaqGenerationError",
     "HTML_SUBAGENT_PROMPT",
     "HtmlAgent",
     "IMAGE_SUBAGENT_PROMPT",

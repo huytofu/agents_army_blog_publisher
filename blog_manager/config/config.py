@@ -51,10 +51,10 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _list_env(name: str) -> list[str]:
+def _list_env(name: str, default: list[str] | None = None) -> list[str]:
     raw = os.getenv(name, "")
     if not raw.strip():
-        return []
+        return list(default or [])
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
@@ -77,6 +77,22 @@ BLOG_STORAGE_CONFIG = {
     "IDEAS_PREFIX": os.getenv("BLOG_IDEAS_PREFIX", DEFAULT_IDEAS_PREFIX),
     "FEED_KEY": os.getenv("BLOG_POSTS_FEED_KEY", DEFAULT_FEED_KEY),
     "POSTS_PREFIX": os.getenv("BLOG_POSTS_PREFIX", DEFAULT_POSTS_PREFIX),
+    "SITE_URL": os.getenv("BLOG_SITE_URL", "https://www.entourage-ai.life"),
+    "RSS_KEY": os.getenv("BLOG_RSS_KEY", "blog/rss.xml"),
+    "RSS_TITLE": os.getenv("BLOG_RSS_TITLE", "ENTOURAGE Blog"),
+    "RSS_DESCRIPTION": os.getenv(
+        "BLOG_RSS_DESCRIPTION",
+        "Stories, practices, and updates from the ENTOURAGE community.",
+    ),
+    "RSS_LANGUAGE": os.getenv("BLOG_RSS_LANGUAGE", "en"),
+    "RSS_MAX_ENTRIES": _int_env("BLOG_RSS_MAX_ENTRIES", 20),
+    "SITEMAP_KEY": os.getenv("BLOG_SITEMAP_KEY", "sitemap.xml"),
+    "ROBOTS_KEY": os.getenv("BLOG_ROBOTS_KEY", "robots.txt"),
+    "STATIC_SITEMAP_PATHS": _list_env(
+        "BLOG_STATIC_SITEMAP_PATHS",
+        ["", "blogs.html", "features.html", "privacy.html", "terms.html", "refund.html"],
+    ),
+    "WEEKLY_HIGHLIGHT_KEY": os.getenv("BLOG_WEEKLY_HIGHLIGHT_KEY", "blog/weekly-highlight.json"),
     "LOCAL_WORK_ROOT": os.getenv("BLOG_LOCAL_WORK_ROOT", _local_work_root_default()),
     "DRY_RUN": _bool_env("BLOG_DRY_RUN", False),
     "OVERWRITE_EXISTING": _bool_env("BLOG_OVERWRITE_EXISTING", False),
@@ -88,10 +104,12 @@ LLM_CONFIG = {
     "HF_MODEL": os.getenv("BLOG_HF_MODEL", ""),
     "HF_PROVIDER": os.getenv("BLOG_HF_PROVIDER", "auto"),
     "HF_FALLBACK_MODEL_IDS": _list_env("BLOG_HF_FALLBACK_MODEL_IDS"),
-    "MAX_TOKENS": _int_env("BLOG_LLM_MAX_TOKENS", 4096),
+    "MAX_TOKENS": _int_env("BLOG_LLM_MAX_TOKENS", 8192),
     "TEMPERATURE": _float_env("BLOG_LLM_TEMPERATURE", 0.7),
     "TOP_P": _float_env("BLOG_LLM_TOP_P", 0.9),
     "TIMEOUT_SEC": _int_env("BLOG_LLM_TIMEOUT_SEC", 90),
+    "REASONING_EFFORT": os.getenv("BLOG_LLM_REASONING_EFFORT", ""),
+    "DEBUG": _bool_env("BLOG_LLM_DEBUG", False),
 }
 
 PIPELINE_LLM_CONFIG = {
@@ -110,6 +128,7 @@ PIPELINE_LLM_CONFIG = {
     ),
     "TOP_P": _float_env("BLOG_PIPELINE_LLM_TOP_P", LLM_CONFIG["TOP_P"]),
     "TIMEOUT_SEC": _int_env("BLOG_PIPELINE_LLM_TIMEOUT_SEC", LLM_CONFIG["TIMEOUT_SEC"]),
+    "REASONING_EFFORT": os.getenv("BLOG_PIPELINE_LLM_REASONING_EFFORT", LLM_CONFIG["REASONING_EFFORT"]),
 }
 
 EXPANSION_LLM_CONFIG = {
@@ -128,6 +147,7 @@ EXPANSION_LLM_CONFIG = {
     ),
     "TOP_P": _float_env("BLOG_EXPANSION_LLM_TOP_P", LLM_CONFIG["TOP_P"]),
     "TIMEOUT_SEC": _int_env("BLOG_EXPANSION_LLM_TIMEOUT_SEC", LLM_CONFIG["TIMEOUT_SEC"]),
+    "REASONING_EFFORT": os.getenv("BLOG_EXPANSION_LLM_REASONING_EFFORT", LLM_CONFIG["REASONING_EFFORT"]),
 }
 
 SUBAGENT_LLM_CONFIG = {
@@ -139,10 +159,33 @@ SUBAGENT_LLM_CONFIG = {
     "HF_PROVIDER": os.getenv("BLOG_SUBAGENT_HF_PROVIDER", LLM_CONFIG["HF_PROVIDER"]),
     "HF_FALLBACK_MODEL_IDS": _list_env("BLOG_SUBAGENT_HF_FALLBACK_MODEL_IDS")
     or LLM_CONFIG["HF_FALLBACK_MODEL_IDS"],
-    "MAX_TOKENS": _int_env("BLOG_SUBAGENT_LLM_MAX_TOKENS", 2048),
-    "TEMPERATURE": _float_env("BLOG_SUBAGENT_LLM_TEMPERATURE", 0.4),
+    "MAX_TOKENS": _int_env("BLOG_SUBAGENT_LLM_MAX_TOKENS", LLM_CONFIG["MAX_TOKENS"]),
+    "TEMPERATURE": _float_env("BLOG_SUBAGENT_LLM_TEMPERATURE", LLM_CONFIG["TEMPERATURE"]),
     "TOP_P": _float_env("BLOG_SUBAGENT_LLM_TOP_P", LLM_CONFIG["TOP_P"]),
     "TIMEOUT_SEC": _int_env("BLOG_SUBAGENT_LLM_TIMEOUT_SEC", LLM_CONFIG["TIMEOUT_SEC"]),
+    "REASONING_EFFORT": os.getenv("BLOG_SUBAGENT_LLM_REASONING_EFFORT", LLM_CONFIG["REASONING_EFFORT"]),
+}
+
+FAQ_LLM_CONFIG = {
+    "TOGETHER_MODEL": os.getenv(
+        "BLOG_FAQ_TOGETHER_MODEL",
+        SUBAGENT_LLM_CONFIG["TOGETHER_MODEL"],
+    ),
+    "HF_MODEL": os.getenv("BLOG_FAQ_HF_MODEL", SUBAGENT_LLM_CONFIG["HF_MODEL"]),
+    "HF_PROVIDER": os.getenv("BLOG_FAQ_HF_PROVIDER", SUBAGENT_LLM_CONFIG["HF_PROVIDER"]),
+    "HF_FALLBACK_MODEL_IDS": _list_env("BLOG_FAQ_HF_FALLBACK_MODEL_IDS")
+    or SUBAGENT_LLM_CONFIG["HF_FALLBACK_MODEL_IDS"],
+    "MAX_TOKENS": _int_env("BLOG_FAQ_LLM_MAX_TOKENS", SUBAGENT_LLM_CONFIG["MAX_TOKENS"]),
+    "TEMPERATURE": _float_env(
+        "BLOG_FAQ_LLM_TEMPERATURE",
+        0.2,
+    ),
+    "TOP_P": _float_env("BLOG_FAQ_LLM_TOP_P", SUBAGENT_LLM_CONFIG["TOP_P"]),
+    "TIMEOUT_SEC": _int_env("BLOG_FAQ_LLM_TIMEOUT_SEC", SUBAGENT_LLM_CONFIG["TIMEOUT_SEC"]),
+    "REASONING_EFFORT": os.getenv(
+        "BLOG_FAQ_LLM_REASONING_EFFORT",
+        SUBAGENT_LLM_CONFIG["REASONING_EFFORT"],
+    ),
 }
 
 IMAGE_CONFIG = {
@@ -159,6 +202,51 @@ WORKER_CONFIG = {
     "DRY_RUN": BLOG_STORAGE_CONFIG["DRY_RUN"],
     "MAIN_AGENT_MAX_ROUNDS": _int_env("BLOG_MAIN_AGENT_MAX_ROUNDS", 3),
     "SUBAGENT_MAX_RETRIES": _int_env("BLOG_SUBAGENT_MAX_RETRIES", 2),
+}
+
+_DEFAULT_COMMENT_MODERATION_TOGETHER_MODEL = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+_DEFAULT_COMMENT_MODERATION_HF_MODEL = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+
+COMMENT_MODERATION_LLM_CONFIG = {
+    "TOGETHER_MODEL": os.getenv(
+        "BLOG_COMMENT_MODERATION_TOGETHER_MODEL",
+        _DEFAULT_COMMENT_MODERATION_TOGETHER_MODEL,
+    ),
+    "HF_MODEL": os.getenv(
+        "BLOG_COMMENT_MODERATION_HF_MODEL",
+        _DEFAULT_COMMENT_MODERATION_HF_MODEL,
+    ),
+    "HF_PROVIDER": os.getenv("BLOG_COMMENT_MODERATION_HF_PROVIDER", "auto"),
+    "HF_FALLBACK_MODEL_IDS": _list_env("BLOG_COMMENT_MODERATION_HF_FALLBACK_MODEL_IDS"),
+    "MAX_TOKENS": _int_env("BLOG_COMMENT_MODERATION_LLM_MAX_TOKENS", 256),
+    "TEMPERATURE": _float_env("BLOG_COMMENT_MODERATION_LLM_TEMPERATURE", 0.1),
+    "TOP_P": _float_env("BLOG_COMMENT_MODERATION_LLM_TOP_P", 0.9),
+    "TIMEOUT_SEC": _int_env("BLOG_COMMENT_MODERATION_LLM_TIMEOUT_SEC", 30),
+    "REASONING_EFFORT": os.getenv("BLOG_COMMENT_MODERATION_LLM_REASONING_EFFORT", LLM_CONFIG["REASONING_EFFORT"]),
+    "DEBUG": _bool_env("BLOG_COMMENT_MODERATION_LLM_DEBUG", False),
+}
+
+BLOG_API_CONFIG = {
+    "JWT_SECRET": os.getenv("BLOG_API_JWT_SECRET", ""),
+    "JWT_ALGORITHM": os.getenv("BLOG_API_JWT_ALGORITHM", "HS256"),
+    "ACCESS_TOKEN_TTL_MINUTES": _int_env("BLOG_API_ACCESS_TOKEN_TTL_MINUTES", 60),
+    "CORS_ORIGINS": _list_env("BLOG_API_CORS_ORIGINS"),
+    "MONGODB_URI": os.getenv("BLOG_API_MONGODB_URI", ""),
+    "MONGODB_USERNAME": os.getenv("BLOG_API_MONGODB_USERNAME", ""),
+    "MONGODB_PASSWORD": os.getenv("BLOG_API_MONGODB_PASSWORD", ""),
+    "MONGODB_AUTH_MECHANISM": os.getenv("BLOG_API_MONGODB_AUTH_MECHANISM", "SCRAM-SHA-256"),
+    "MONGODB_REQUIRE_AUTH": _bool_env("BLOG_API_MONGODB_REQUIRE_AUTH", True),
+    "MONGODB_AUTH_SOURCE": os.getenv("BLOG_API_MONGODB_AUTH_SOURCE", "admin"),
+    "MONGODB_DATABASE": os.getenv("BLOG_API_MONGODB_DATABASE", "entourage_blog"),
+    "USERS_COLLECTION": os.getenv("BLOG_API_USERS_COLLECTION", "blog_users"),
+    "COMMENTS_COLLECTION": os.getenv("BLOG_API_COMMENTS_COLLECTION", "blog_comments"),
+    "SUBSCRIBERS_COLLECTION": os.getenv("BLOG_API_SUBSCRIBERS_COLLECTION", "blog_subscribers"),
+    "EMAIL_TOKENS_COLLECTION": os.getenv("BLOG_API_EMAIL_TOKENS_COLLECTION", "blog_email_tokens"),
+    "DIGEST_SENDS_COLLECTION": os.getenv("BLOG_API_DIGEST_SENDS_COLLECTION", "blog_digest_sends"),
+    "API_BASE_URL": os.getenv("BLOG_API_BASE_URL", ""),
+    "SES_SENDER_EMAIL": os.getenv("BLOG_API_SES_SENDER_EMAIL", ""),
+    "SES_CONFIGURATION_SET": os.getenv("BLOG_API_SES_CONFIGURATION_SET", ""),
+    "MODERATION_MODE": os.getenv("BLOG_API_MODERATION_MODE", "manual_v1"),
 }
 
 

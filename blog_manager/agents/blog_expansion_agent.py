@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from datetime import date
-from typing import Any
+from typing import Any, NamedTuple
 
 from blog_manager.config import EXPANSION_LLM_CONFIG
 from blog_manager.schemas import (
@@ -23,13 +24,11 @@ logger = logging.getLogger(__name__)
 BLOG_CATEGORIES = [
     "Purpose",
     "Stoicism",
-    "Psychology",
     "Relationships",
     "Productivity",
     "Habits",
     "Inner Work",
     "Love",
-    "Fitness",
     "Philosophy",
     "Unknown",
 ]
@@ -42,6 +41,74 @@ SEARCH_INTENTS = [
     "unknown",
 ]
 DEFAULT_SEARCH_INTENT = "unknown"
+LLM_JSON_LOG_LIMIT = 12000
+
+
+class StyleOption(NamedTuple):
+    """Short runtime prompt fragment for article variety."""
+
+    name: str
+    instruction: str
+
+
+class BlogStyleProfile(NamedTuple):
+    """Selected voice notes for one expansion request."""
+
+    persona: StyleOption
+    rhetorical_shape: StyleOption
+    opening_constraint: StyleOption
+
+
+_STYLE_RANDOM = random.SystemRandom()
+
+PERSONAS = [
+    StyleOption(
+        "practical coach",
+        "Be clear, grounded, and action-oriented with gentle encouragement.",
+    ),
+    StyleOption(
+        "reflective philosopher",
+        "Use thoughtful meaning-making without drifting into abstraction.",
+    ),
+    StyleOption(
+        "playful friend",
+        "Add light humor and warmth while staying emotionally safe.",
+    ),
+    StyleOption(
+        "lyrical guide",
+        "Use vivid but simple imagery, then return quickly to practical value.",
+    ),
+    StyleOption(
+        "direct field guide",
+        "Be concise, concrete, and useful; avoid ornamental phrasing.",
+    ),
+]
+
+RHETORICAL_SHAPES = [
+    StyleOption(
+        "list-guided",
+        "Propose a clear framework with titled concepts, principles and actionable strategies.",
+    ),
+    StyleOption(
+        "question-guided",
+        "Use open-ended questions followed by structured answers to build momentum.",
+    ),
+    StyleOption(
+        "reflective essay",
+        "Move through observation, analysis, insights/epiphanies/takeaways.",
+    ),
+    StyleOption(
+        "practical framework",
+        "Define the problem, offer a simple model, and practical steps to take.",
+    ),
+]
+
+OPENING_CONSTRAINTS = [
+    StyleOption("concrete scene", "Begin with a concrete everyday scene."),
+    StyleOption("common misconception", "Begin by correcting a common misconception."),
+    StyleOption("tiny story", "Begin with a tiny story in 2 to 3 sentences."),
+    StyleOption("hopeful promise", "Begin with a hopeful promise to the reader."),
+]
 
 SYSTEM_PROMPT = """You are BlogExpansionAgent, the Entourage blog content specialist.
 
@@ -52,12 +119,10 @@ ROLE:
 - Avoid medical diagnosis, guaranteed outcomes, or treatment claims.
 
 CONTENT RESPONSIBILITIES:
-- Write publication-ready Markdown with a concise excerpt, strong title, useful descriptive headings, short paragraphs, and a grounded closing reflection.
+- Write publication-ready Markdown with a concise excerpt, strong title, useful headings (different from title), short paragraphs, and a grounded closing reflection.
 - Build each article around a clear search intent (informational|problem-solving|comparative|transactional|unknown). Infer from user's idea.
 - Give readers a direct answer, definition, or practical framing in the first 100 words.
-- Add 1 to 2 FAQ items that answer likely long-tail search questions afer closing reflection.
 - Use plenty of emoticons at both mid and end of sentences 
-- Use occasional humor throughout the post (no dark humor, threat, or triggering content allowed)
 - Limit the post length to between 700 words and 900 words.
 
 IMPORTANT INSTRUCTIONS:
@@ -66,22 +131,24 @@ IMPORTANT INSTRUCTIONS:
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
 - Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
-- Choose one `category` for topical authority from: Purpose|Stoicism|Psychology|Relationships|Productivity|Habits|Inner Work|Love|Fitness|Philosophy|Unknown.
+- Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown.
 - Pick one long-tail `primary_keyword`.
-a) Use the primary keyword naturally in the title, opening paragraph, `seo_title`, and `seo_description`.
+a) Use the primary keyword naturally in the opening paragraph, `seo_title`, and `seo_description`.
 b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
 
 GOOD TO HAVE:
-- Include optional `safety_notes` for any claims or wording that should remain cautious. Omit the field if there are no useful notes.
-- Include optional `citation_suggestions` when relevant, such as credible books, researchers, or studies. Omit the field if there are no useful suggestions. Do not fabricate citations, URLs, people's names, study details, credentials.
+- Include maximum 2 optional reader-facing `safety_notes` for any claims that the reader should be cautious about. Omit the field if there are no useful notes.
+- Include maximum 2 optional reader-facing `citation_suggestions` for credible books, researchers, or studies. Omit the field if there are no useful suggestions. 
 
 BOUNDARIES:
+- Do not fabricate citations, URLs, people's names, study details, credentials.
+- Do not add safety notes or citation suggestions to `body_markdown`. Only include them as JSON fields.
 - Do not decide workflow routing, publishing, retries, or failure handling.
 - Do not perform S3 operations.
 - Do not render HTML or generate images.
-- Do not manage subagents or produce subagent handoff plans.
 
 OUTPUT:
+Do not add any text before or after the JSON.
 Return ONLY valid JSON with exactly these top-level fields:
 {
   "title": "string",
@@ -98,17 +165,11 @@ Return ONLY valid JSON with exactly these top-level fields:
     }
   ],
   "tags": ["short keyword"],
-  "category": "Purpose|Stoicism|Psychology|Relationships|Productivity|Habits|Inner Work|Love|Fitness|Philosophy|Unknown",
+  "category": "Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown",
   "seo_title": "string",
   "seo_description": "string",
   "primary_keyword": "long-tail keyword string",
   "search_intent": "informational|problem_solving|comparative|transactional|unknown",
-  "faq_items": [
-    {
-      "question": "likely reader/search question",
-      "answer": "concise, accurate answer"
-    }
-  ],
   "citation_suggestions": ["credible source to consider"],
   "safety_notes": ["string"]
 }
@@ -130,7 +191,16 @@ class BlogExpansionAgent:
         idea: BlogIdea,
     ) -> BlogAgentResult:
         """Expand one parsed idea into a structured post."""
-        messages = self._build_messages(_build_expansion_user_prompt(idea))
+        style_profile = _select_style_profile()
+        logger.info(
+            "Selected blog expansion style persona=%s rhetorical_shape=%s opening=%s",
+            style_profile.persona.name,
+            style_profile.rhetorical_shape.name,
+            style_profile.opening_constraint.name,
+        )
+        messages = self._build_messages(
+            _build_expansion_user_prompt(idea, style_profile)
+        )
         raw_response = await self.llm_client.chat_completion(messages)
 
         try:
@@ -203,9 +273,33 @@ class BlogExpansionAgent:
         ]
 
 
-def _build_expansion_user_prompt(idea: BlogIdea) -> str:
+def _select_style_profile() -> BlogStyleProfile:
+    return BlogStyleProfile(
+        persona=_STYLE_RANDOM.choice(PERSONAS),
+        rhetorical_shape=_STYLE_RANDOM.choice(RHETORICAL_SHAPES),
+        opening_constraint=_STYLE_RANDOM.choice(OPENING_CONSTRAINTS),
+    )
+
+
+def _style_profile_prompt(style_profile: BlogStyleProfile) -> str:
+    return f"""## Runtime voice notes
+These are light style nudges only.
+Follow all system, safety, SEO, image, and JSON schema instructions first.
+- Persona: {style_profile.persona.name}. {style_profile.persona.instruction}
+- Shape: {style_profile.rhetorical_shape.name}. {style_profile.rhetorical_shape.instruction}
+- Opening: {style_profile.opening_constraint.name}. {style_profile.opening_constraint.instruction}
+"""
+
+
+def _build_expansion_user_prompt(
+    idea: BlogIdea,
+    style_profile: BlogStyleProfile,
+) -> str:
     frontmatter = json.dumps(idea.frontmatter, indent=2, ensure_ascii=False)
-    return f"""## Idea source
+    style_notes = _style_profile_prompt(style_profile)
+    return f"""{style_notes}
+
+## Idea source
 S3 key: {idea.key}
 
 ## Frontmatter
@@ -242,7 +336,6 @@ def _build_revision_user_prompt(
         "seo_description": post.seo_description,
         "primary_keyword": post.primary_keyword,
         "search_intent": post.search_intent,
-        "faq_items": post.faq_items,
         "citation_suggestions": post.citation_suggestions,
         "safety_notes": post.safety_notes,
     }
@@ -251,6 +344,9 @@ def _build_revision_user_prompt(
 
 ## Revision instruction
 {revision_instruction.strip()}
+
+Preserve the current article's voice, structure, and opening style.
+Change direction only if the revision instruction explicitly asks for it.
 """
 
 
@@ -258,18 +354,56 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
     text = _clean_response(raw)
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            raise BlogExpansionError("Expansion output did not contain JSON.")
-        try:
-            parsed = json.loads(match.group())
-        except json.JSONDecodeError as exc:
-            raise BlogExpansionError(f"Expansion JSON parse failed: {exc}") from exc
+    except json.JSONDecodeError as whole_response_error:
+        parsed = _parse_embedded_json_object(text)
+        if parsed is None:
+            _log_invalid_llm_json_response(raw, text, whole_response_error)
+            raise BlogExpansionError(
+                f"Expansion JSON parse failed: {whole_response_error}"
+            ) from whole_response_error
 
     if not isinstance(parsed, dict):
+        _log_invalid_llm_json_response(raw, text)
         raise BlogExpansionError("Expansion output must be a JSON object.")
     return parsed
+
+
+def _parse_embedded_json_object(text: str) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            parsed, _ = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _log_invalid_llm_json_response(
+    raw: str,
+    cleaned: str,
+    exc: json.JSONDecodeError | None = None,
+) -> None:
+    raw_preview = _truncate_for_log(raw or "")
+    cleaned_preview = _truncate_for_log(cleaned)
+    reason = f" error={exc}" if exc else ""
+    message = (
+        "BlogExpansionAgent invalid JSON response"
+        f"{reason} raw_len={len(raw or '')} cleaned_len={len(cleaned)} "
+        f"raw_response={raw_preview!r} cleaned_response={cleaned_preview!r}"
+    )
+    print(message)
+    logger.warning(message)
+
+
+def _truncate_for_log(value: str) -> str:
+    if len(value) <= LLM_JSON_LOG_LIMIT:
+        return value
+    return (
+        value[:LLM_JSON_LOG_LIMIT]
+        + f"... [truncated {len(value) - LLM_JSON_LOG_LIMIT} chars]"
+    )
 
 
 def _clean_response(raw: str) -> str:
@@ -372,24 +506,7 @@ def _search_intent_from_payload(value: Any) -> str:
 
 
 def _faq_items_from_payload(value: Any) -> list[dict[str, str]]:
-    if not isinstance(value, list):
-        return []
-
-    items: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        question = str(item.get("question") or "").strip()
-        answer = str(item.get("answer") or "").strip()
-        if not question or not answer:
-            continue
-        key = question.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        items.append({"question": question, "answer": answer})
-    return items
+    return []
 
 
 def _supporting_images_from_payload(value: Any, body_markdown: str) -> list[SupportingImage]:

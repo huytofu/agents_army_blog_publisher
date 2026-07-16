@@ -50,7 +50,8 @@ PUBLISHING RULES:
 - Never choose publish just because content is good; artifact generation and validation must have happened first.
 
 OUTPUT:
-Return ONLY valid JSON with this schema (subagent_plan is optional except for at FinalizeSubagentsPlan):
+Do not add any text before or after the JSON.
+Return ONLY valid JSON with this schema (subagent_plan is optional except at FinalizeSubagentsPlan):
 {
   "decision": "expand_content|revise_content|generate_artifacts|retry_artifacts|publish|fail",
   "reason": "short user-safe explanation",
@@ -132,6 +133,22 @@ def build_content_review_observation(state: BlogGraphState) -> str:
             "main_round": state.main_round,
             "errors": state.errors,
             "allowed_decisions": ["revise_content", "generate_artifacts", "fail"],
+        },
+    )
+
+
+def build_pre_faq_generation_observation(state: BlogGraphState) -> str:
+    post = state.expanded_post
+    return _json_observation(
+        "PreFaqGeneration",
+        {
+            "expanded_post": _post_payload(post),
+            "main_round": state.main_round,
+            "errors": state.errors,
+            "task": (
+                "Generate schema-only faq_items for crawler-facing FAQPage JSON-LD. "
+                "Do not add FAQ content to body_markdown."
+            ),
         },
     )
 

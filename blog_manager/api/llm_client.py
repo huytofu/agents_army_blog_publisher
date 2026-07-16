@@ -1,4 +1,4 @@
-"""Together / HuggingFace chat completion client for blog agents."""
+"""Together / HuggingFace chat completion client for the blog API."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
-from blog_manager.config import LLM_CONFIG, get_hf_token, get_together_token
-DEBUG = LLM_CONFIG["DEBUG"]
+from blog_manager.config import COMMENT_MODERATION_LLM_CONFIG, get_hf_token, get_together_token
+
+DEBUG = COMMENT_MODERATION_LLM_CONFIG["DEBUG"]
 
 if TYPE_CHECKING:
     from together.types.chat.completion_create_params import Message as TogetherMessage
@@ -25,15 +26,15 @@ except Exception:  # pragma: no cover - optional provider dependency
 logger = logging.getLogger(__name__)
 
 
-class BlogLlmError(RuntimeError):
-    """Raised when all configured LLM providers fail."""
+class BlogApiLlmError(RuntimeError):
+    """Raised when all configured API LLM providers fail."""
 
 
-class BlogLlmClient:
-    """Async chat client using Together first, then HuggingFace fallback."""
+class BlogApiLlmClient:
+    """Async chat client for blog API features using Together first, then HuggingFace."""
 
     def __init__(self, config: dict[str, Any] | None = None):
-        self.config = config or LLM_CONFIG
+        self.config = config or COMMENT_MODERATION_LLM_CONFIG
 
     async def chat_completion(self, messages: list[dict[str, str]]) -> str:
         """Return assistant text from the first successful configured provider."""
@@ -66,7 +67,7 @@ class BlogLlmClient:
             if response:
                 return response
 
-        raise BlogLlmError("All blog LLM providers failed or returned empty output.")
+        raise BlogApiLlmError("All blog API LLM providers failed or returned empty output.")
 
     async def _try_together(self, messages: list[dict[str, str]]) -> tuple[list[Any], str]:
         model = self.config.get("TOGETHER_MODEL", "")
@@ -86,7 +87,7 @@ class BlogLlmClient:
             )
             return _extract_message_content(response)
         except Exception as exc:
-            logger.warning("Together blog completion failed: %s", _format_provider_exception(exc))
+            logger.warning("Together blog API completion failed: %s", _format_provider_exception(exc))
             return [], ""
         finally:
             await _safe_close(client)
@@ -114,7 +115,7 @@ class BlogLlmClient:
             return _extract_message_content(response)
         except Exception as exc:
             logger.warning(
-                "HuggingFace blog completion failed model=%s error=%s",
+                "HuggingFace blog API completion failed model=%s error=%s",
                 model,
                 _format_provider_exception(exc),
             )
