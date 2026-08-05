@@ -1,15 +1,6 @@
 # Blog Publisher Pipeline
 
-This repository contains the Entourage blog publisher agent. Its job is to turn rough blog ideas from S3 into complete static website assets:
-
-- updated `blog/posts.json` metadata
-- one generated blog article HTML file
-- one generated cover image
-- an updated source idea file marked as processed
-
-The system is designed as a small agent team. One supervisor decides what should happen next, one writing agent expands the post, and two artifact agents produce local HTML/image files. Only the main publisher workflow is allowed to write to S3.
-
-## High-Level Flow
+This document describes the blog publisher agent workflow: graph structure, agent roles, ReAct decisions, and permission boundaries. For a repository overview and how to see the agent's output live, see `README.md`.
 
 At a high level, one scheduled worker run should:
 
