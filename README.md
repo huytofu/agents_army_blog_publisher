@@ -15,7 +15,7 @@ The system is designed as a small agent team. One supervisor decides what should
 
 Every post the agent publishes goes live on the Entourage website:
 
-- **Blog index:** [entourage-ai.life/blogs.html](https://entourage-ai.life/blogs.html)
+- **Blog index:** [www.entourage-ai.life/blogs.html](https://www.entourage-ai.life/blogs.html)
 
 The agent runs autonomously on a schedule (an EventBridge-triggered Lambda, roughly one run every 3 days). Each run picks up one unprocessed idea from S3, expands it into a full article, generates a cover image, and publishes the result. Everything you see on the blog index — the article text, HTML layout, and cover image — was produced end to end by the agent team with no human editing.
 

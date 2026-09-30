@@ -74,12 +74,17 @@ class ConfiguredImageProvider:
         if provider == "placeholder":
             return _default_image_bytes()
         if provider == "together":
-            return await asyncio.to_thread(self._generate_together_image, prompt=prompt)
+            return await asyncio.to_thread(
+                self._generate_together_image,
+                prompt=prompt,
+                width=width,
+                height=height,
+            )
         raise LocalArtifactError(
             "BLOG_IMAGE_PROVIDER is not configured with an implemented image provider."
         )
 
-    def _generate_together_image(self, *, prompt: str) -> bytes:
+    def _generate_together_image(self, *, prompt: str, width: int, height: int) -> bytes:
         if Together is None:
             raise LocalArtifactError("together is required for BLOG_IMAGE_PROVIDER=together.")
         model = str(self.config.get("MODEL") or "").strip()
@@ -92,10 +97,20 @@ class ConfiguredImageProvider:
             response = client.images.generate(
                 prompt=prompt,
                 model=model,
+                width=width,
+                height=height,
                 response_format="base64",
             )
         except TypeError:
-            response = client.images.generate(prompt=prompt, model=model)
+            try:
+                response = client.images.generate(
+                    prompt=prompt,
+                    model=model,
+                    width=width,
+                    height=height,
+                )
+            except TypeError:
+                response = client.images.generate(prompt=prompt, model=model)
         data_item = _first_response_item(response)
 
         image_bytes = _image_bytes_from_b64(data_item)
@@ -161,8 +176,8 @@ class LocalArtifactService:
         output_path = self._post_dir(slug) / COVER_IMAGE_FILENAME
         image_bytes = await self.image_provider.generate_jpeg(
             prompt=post.image_prompt,
-            width=IMAGE_CONFIG["WIDTH"],
-            height=IMAGE_CONFIG["HEIGHT"],
+            width=IMAGE_CONFIG["COVER_WIDTH"],
+            height=IMAGE_CONFIG["COVER_HEIGHT"],
         )
         _validate_jpeg(image_bytes)
         _write_bytes(output_path, image_bytes)
@@ -184,8 +199,8 @@ class LocalArtifactService:
         output_path = self._post_dir(slug) / filename
         image_bytes = await self.image_provider.generate_jpeg(
             prompt=supporting_image.prompt,
-            width=IMAGE_CONFIG["WIDTH"],
-            height=IMAGE_CONFIG["HEIGHT"],
+            width=IMAGE_CONFIG["SUPPORTING_WIDTH"],
+            height=IMAGE_CONFIG["SUPPORTING_HEIGHT"],
         )
         _validate_jpeg(image_bytes)
         _write_bytes(output_path, image_bytes)
@@ -273,6 +288,8 @@ def render_article_html(
     seo_description = html.escape(post.seo_description or post.excerpt)
     body = markdown_to_html(post.body_markdown, supporting_images=post.supporting_images)
     cover_path = html.escape(f"cover.jpg")
+    cover_width = int(IMAGE_CONFIG["COVER_WIDTH"])
+    cover_height = int(IMAGE_CONFIG["COVER_HEIGHT"])
     article_url = html.escape(_article_url(post))
     cover_url = html.escape(_cover_image_url(post))
     rss_url = html.escape(_rss_feed_url())
@@ -314,7 +331,7 @@ def render_article_html(
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.7; color: #1f2937; margin: 0; background: #f9fafb; }}
         main {{ max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem 4rem; background: #ffffff; }}
-        .cover {{ width: 100%; border-radius: 16px; margin: 1.5rem 0; object-fit: cover; }}
+        .cover {{ width: 100%; height: auto; border-radius: 16px; margin: 1.5rem 0; object-fit: cover; }}
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
@@ -351,7 +368,7 @@ def render_article_html(
             <p class="meta">{html.escape(post.date)}</p>
             <h1>{title}</h1>
             <p><strong>{excerpt}</strong></p>
-            <img class="cover" src="{cover_path}" alt="{title}">
+            <img class="cover" src="{cover_path}" width="{cover_width}" height="{cover_height}" alt="{title}">
             {body}
             {content_note}
             {references}
@@ -377,6 +394,8 @@ def markdown_to_html(
     supporting_image_by_filename = {
         image.filename: image for image in supporting_images or []
     }
+    supporting_width = int(IMAGE_CONFIG["SUPPORTING_WIDTH"])
+    supporting_height = int(IMAGE_CONFIG["SUPPORTING_HEIGHT"])
 
     def flush_list() -> None:
         nonlocal list_tag
@@ -414,7 +433,7 @@ def markdown_to_html(
             alt_text = html.escape(image.alt_text)
             blocks.append(
                 '<figure class="supporting-figure">'
-                f'<img class="supporting-image" src="{filename}" alt="{alt_text}">'
+                f'<img class="supporting-image" src="{filename}" width="{supporting_width}" height="{supporting_height}" alt="{alt_text}">'
                 "</figure>"
             )
             continue

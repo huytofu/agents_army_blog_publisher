@@ -186,7 +186,7 @@ def enhance_supporting_prompt(
         f"Supporting image {supporting_image.filename} for an Entourage blog post titled: {post.title.strip()}.",
         f"Core visual brief: {supporting_image.prompt.strip()}",
         "Style: calm, hopeful, modern editorial illustration with soft natural light.",
-        "Composition: inline blog illustration, focused scene, no readable text.",
+        "Composition: inline blog illustration, square 630x630, focused scene, no readable text.",
         "Palette: soothing greens, warm neutrals, soft indigo accents, gentle contrast.",
         "Mood: emotionally grounded, reflective, supportive, growth-oriented.",
         "Avoid: readable text, logos, recognizable real people, medical equipment, clinical settings, copyrighted characters, fear-based imagery.",

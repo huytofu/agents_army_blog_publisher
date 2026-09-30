@@ -20,6 +20,7 @@ from blog_manager.agents.blog_pipeline_agent import build_pre_faq_generation_obs
 from blog_manager.config import WORKER_CONFIG
 from blog_manager.constants import (
     COVER_IMAGE_CONTENT_TYPE,
+    SUPPORTING_IMAGE_CONTENT_TYPE,
     COVER_IMAGE_FILENAME,
     POST_HTML_CONTENT_TYPE,
     POST_HTML_FILENAME,
@@ -576,7 +577,7 @@ def _validate_image_artifacts(
                 artifact,
                 slug=post.slug,
                 filename=supporting_image.filename,
-                content_type=COVER_IMAGE_CONTENT_TYPE,
+                content_type=SUPPORTING_IMAGE_CONTENT_TYPE,
             )
         )
     return errors

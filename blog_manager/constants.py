@@ -12,6 +12,7 @@ COVER_IMAGE_FILENAME = "cover.jpg"
 
 POST_HTML_CONTENT_TYPE = "text/html; charset=utf-8"
 COVER_IMAGE_CONTENT_TYPE = "image/jpeg"
+SUPPORTING_IMAGE_CONTENT_TYPE = "image/jpeg"
 POSTS_JSON_CONTENT_TYPE = "application/json; charset=utf-8"
 RSS_XML_CONTENT_TYPE = "application/rss+xml; charset=utf-8"
 SITEMAP_XML_CONTENT_TYPE = "application/xml; charset=utf-8"

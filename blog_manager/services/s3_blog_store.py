@@ -7,6 +7,7 @@ local-only tools and pass local artifact descriptors back to the main flow.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from urllib.parse import urljoin
 from xml.sax.saxutils import escape
@@ -15,6 +16,7 @@ from typing import Any, Iterable
 from blog_manager.config import BLOG_STORAGE_CONFIG, get_aws_client_kwargs
 from blog_manager.constants import (
     IDEA_MARKDOWN_CONTENT_TYPE,
+    POST_HTML_CONTENT_TYPE,
     POSTS_JSON_CONTENT_TYPE,
     ROBOTS_TXT_CONTENT_TYPE,
     RSS_XML_CONTENT_TYPE,
@@ -26,6 +28,13 @@ from blog_manager.services.idea_parser import (
     mark_idea_processed,
     parse_idea_markdown,
 )
+
+
+logger = logging.getLogger(__name__)
+
+_BLOG_POSTS_START = "<!-- blog-posts:start -->"
+_BLOG_POSTS_END = "<!-- blog-posts:end -->"
+_SHORT_LIVED_CACHE_CONTROL = "max-age=300"
 
 
 class BlogStoreError(RuntimeError):
@@ -118,11 +127,17 @@ class S3BlogStore:
         """Upload the normalized `blog/posts.json` feed."""
         normalized = _sort_feed([dict(item) for item in entries])
         payload = json.dumps(normalized, indent=2, ensure_ascii=False) + "\n"
-        self.put_text(self.feed_key, payload, content_type=POSTS_JSON_CONTENT_TYPE)
+        self.put_text(
+            self.feed_key,
+            payload,
+            content_type=POSTS_JSON_CONTENT_TYPE,
+            cache_control=_SHORT_LIVED_CACHE_CONTROL,
+        )
         self.write_rss_feed(normalized)
         self.write_sitemap(normalized)
         self.write_robots_txt()
         self.write_weekly_highlight(normalized)
+        self.write_blog_index(normalized)
 
     def write_rss_feed(self, entries: Iterable[dict[str, Any]]) -> None:
         """Upload RSS XML derived from normalized `blog/posts.json` metadata."""
@@ -134,12 +149,39 @@ class S3BlogStore:
         """Upload root sitemap XML from configured public pages and blog feed entries."""
         normalized = _sort_feed([dict(item) for item in entries])
         payload = _render_sitemap(normalized, self.config)
-        self.put_text(self.config["SITEMAP_KEY"], payload, content_type=SITEMAP_XML_CONTENT_TYPE)
+        self.put_text(
+            self.config["SITEMAP_KEY"],
+            payload,
+            content_type=SITEMAP_XML_CONTENT_TYPE,
+            cache_control=_SHORT_LIVED_CACHE_CONTROL,
+        )
 
     def write_robots_txt(self) -> None:
         """Upload root robots.txt pointing crawlers at the generated sitemap."""
         payload = _render_robots_txt(self.config)
         self.put_text(self.config["ROBOTS_KEY"], payload, content_type=ROBOTS_TXT_CONTENT_TYPE)
+
+    def write_blog_index(self, entries: Iterable[dict[str, Any]]) -> None:
+        """Replace the crawlable post list inside `blogs.html` and upload it."""
+        key = str(self.config.get("BLOG_INDEX_KEY") or "blogs.html").lstrip("/")
+        try:
+            current_html = self.read_text(key)
+        except Exception as exc:
+            if _is_s3_not_found(exc) or isinstance(exc, KeyError):
+                logger.warning("Blog index %s is missing; skipping crawlable link rewrite.", key)
+                return
+            raise
+
+        updated_html = _replace_blog_index_links(current_html, _sort_feed([dict(item) for item in entries]))
+        if updated_html is None:
+            logger.warning("Blog index %s has no blog-posts markers; skipping crawlable link rewrite.", key)
+            return
+        self.put_text(
+            key,
+            updated_html,
+            content_type=POST_HTML_CONTENT_TYPE,
+            cache_control=_SHORT_LIVED_CACHE_CONTROL,
+        )
 
     def write_weekly_highlight(self, entries: Iterable[dict[str, Any]]) -> None:
         """Upload the deterministic weekly highlight artifact for email digests."""
@@ -184,15 +226,25 @@ class S3BlogStore:
             content_type=IDEA_MARKDOWN_CONTENT_TYPE,
         )
 
-    def put_text(self, key: str, text: str, *, content_type: str) -> None:
+    def put_text(
+        self,
+        key: str,
+        text: str,
+        *,
+        content_type: str,
+        cache_control: str | None = None,
+    ) -> None:
         """Upload a UTF-8 text object to S3."""
         self._require_bucket()
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=text.encode("utf-8"),
-            ContentType=content_type,
-        )
+        params: dict[str, Any] = {
+            "Bucket": self.bucket,
+            "Key": key,
+            "Body": text.encode("utf-8"),
+            "ContentType": content_type,
+        }
+        if cache_control:
+            params["CacheControl"] = cache_control
+        self.client.put_object(**params)
 
     def _require_bucket(self) -> None:
         if not self.bucket:
@@ -206,6 +258,29 @@ class S3BlogStore:
             raise BlogStoreError("boto3 is required for S3 blog storage.") from exc
 
         return boto3.client("s3", **get_aws_client_kwargs())
+
+
+def _replace_blog_index_links(html: str, entries: list[dict[str, Any]]) -> str | None:
+    """Return HTML with the marker block replaced, or None when markers are absent."""
+    start = html.find(_BLOG_POSTS_START)
+    end = html.find(_BLOG_POSTS_END)
+    if start < 0 or end < 0 or end < start:
+        return None
+    links = _render_blog_index_links(entries)
+    return f"{html[: start + len(_BLOG_POSTS_START)]}{links}{html[end:]}"
+
+
+def _render_blog_index_links(entries: list[dict[str, Any]]) -> str:
+    items: list[str] = []
+    for entry in entries:
+        slug = str(entry.get("slug") or "").strip()
+        if not slug:
+            continue
+        title = str(entry.get("title") or "Untitled Post")
+        href = f"blog/{slug}/index.html"
+        items.append(f'    <li><a href="{escape(href)}">{escape(title)}</a></li>')
+    body = "\n".join(items)
+    return f"\n  <ul>\n{body}\n  </ul>\n  "
 
 
 def _sort_feed(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

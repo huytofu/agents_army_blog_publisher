@@ -87,10 +87,11 @@ BLOG_STORAGE_CONFIG = {
     "RSS_LANGUAGE": os.getenv("BLOG_RSS_LANGUAGE", "en"),
     "RSS_MAX_ENTRIES": _int_env("BLOG_RSS_MAX_ENTRIES", 20),
     "SITEMAP_KEY": os.getenv("BLOG_SITEMAP_KEY", "sitemap.xml"),
+    "BLOG_INDEX_KEY": os.getenv("BLOG_INDEX_KEY", "blogs.html"),
     "ROBOTS_KEY": os.getenv("BLOG_ROBOTS_KEY", "robots.txt"),
     "STATIC_SITEMAP_PATHS": _list_env(
         "BLOG_STATIC_SITEMAP_PATHS",
-        ["", "blogs.html", "pricing.html", "delete-account.html", "features.html", "privacy.html", "terms.html", "refund.html"],
+        ["/", "blogs.html", "features.html", "privacy.html", "terms.html", "refund.html"],
     ),
     "WEEKLY_HIGHLIGHT_KEY": os.getenv("BLOG_WEEKLY_HIGHLIGHT_KEY", "blog/weekly-highlight.json"),
     "LOCAL_WORK_ROOT": os.getenv("BLOG_LOCAL_WORK_ROOT", _local_work_root_default()),
@@ -192,8 +193,10 @@ IMAGE_CONFIG = {
     "PROVIDER": os.getenv("BLOG_IMAGE_PROVIDER", ""),
     "API_KEY": os.getenv("BLOG_IMAGE_API_KEY", ""),
     "MODEL": os.getenv("BLOG_IMAGE_MODEL", ""),
-    "WIDTH": _int_env("BLOG_IMAGE_WIDTH", 1200),
-    "HEIGHT": _int_env("BLOG_IMAGE_HEIGHT", 630),
+    "COVER_WIDTH": _int_env("BLOG_IMAGE_COVER_WIDTH", 1200),
+    "COVER_HEIGHT": _int_env("BLOG_IMAGE_COVER_HEIGHT", 630),
+    "SUPPORTING_WIDTH": _int_env("BLOG_IMAGE_SUPPORTING_WIDTH", 630),
+    "SUPPORTING_HEIGHT": _int_env("BLOG_IMAGE_SUPPORTING_HEIGHT", 630),
     "TIMEOUT_SEC": _int_env("BLOG_IMAGE_TIMEOUT_SEC", 120),
 }
 
