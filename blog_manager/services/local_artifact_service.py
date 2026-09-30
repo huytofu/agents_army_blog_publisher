@@ -405,6 +405,7 @@ def render_article_html(
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
+        .excerpt {{ color: #5b21b6; font-size: 1.05rem; }}
         .content-note, .reference-list {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
         .callout {{ background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 12px; margin: 1.5rem 0; padding: 1rem 1.25rem; }}
         .callout h4 {{ margin: 0 0 0.5rem; }}
@@ -437,7 +438,7 @@ def render_article_html(
         <article>
             <p class="meta">{html.escape(post.date)}</p>
             <h1>{title}</h1>
-            <p><strong>{excerpt}</strong></p>
+            <p class="excerpt"><strong>{excerpt}</strong></p>
             <img class="cover" src="{cover_path}" width="{cover_width}" height="{cover_height}" alt="{title}">
             {body}
             {content_note}
