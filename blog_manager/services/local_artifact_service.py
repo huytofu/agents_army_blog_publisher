@@ -483,11 +483,22 @@ def markdown_to_html(
         list_items.append(f"<li>{_inline_markdown(value)}</li>")
 
     lines = markdown.splitlines()
+
+    def next_nonblank_continues_list(start: int) -> bool:
+        for upcoming in lines[start:]:
+            stripped = upcoming.strip()
+            if not stripped:
+                continue
+            return _parse_list_item(stripped) is not None
+        return False
+
     index = 0
     while index < len(lines):
         line = lines[index].strip()
         index += 1
         if not line:
+            if list_items and next_nonblank_continues_list(index):
+                continue
             flush_list()
             continue
         footnote_match = re.fullmatch(r"\[\^([A-Za-z0-9_-]+)\]:\s+(.+)", line)
@@ -534,10 +545,8 @@ def markdown_to_html(
         elif line.startswith("> "):
             flush_list()
             blocks.append(f"<blockquote>{_inline_markdown(line[2:])}</blockquote>")
-        elif line.startswith("- "):
-            append_list_item("ul", line[2:])
-        elif ordered_match := re.fullmatch(r"\d+\.\s+(.+)", line):
-            append_list_item("ol", ordered_match.group(1))
+        elif parsed_list_item := _parse_list_item(line):
+            append_list_item(*parsed_list_item)
         else:
             flush_list()
             blocks.append(f"<p>{_inline_markdown(line)}</p>")
@@ -546,6 +555,16 @@ def markdown_to_html(
     if footnotes:
         blocks.append(_render_footnotes(footnotes))
     return "\n            ".join(blocks)
+
+
+def _parse_list_item(line: str) -> tuple[str, str] | None:
+    """Return ``(ul|ol, item text)`` when ``line`` is a supported list marker."""
+    if line.startswith("- "):
+        return "ul", line[2:]
+    ordered_match = re.fullmatch(r"\d+\.\s+(.+)", line)
+    if ordered_match:
+        return "ol", ordered_match.group(1)
+    return None
 
 
 def _inline_markdown(value: str) -> str:

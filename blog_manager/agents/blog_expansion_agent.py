@@ -144,8 +144,8 @@ BOUNDARIES:
 - Do not fabricate citations, URLs, people's names, study details, credentials.
 - Do not add safety notes or citation suggestions to `body_markdown`. Only include them as JSON fields.
 - Do not decide workflow routing, publishing, retries, or failure handling.
-- Do not perform S3 operations.
 - Do not render HTML or generate images.
+- Do not use too many instances of " — " in the body_markdown.
 
 OUTPUT:
 Do not add any text before or after the JSON.
@@ -298,9 +298,6 @@ def _build_expansion_user_prompt(
     frontmatter = json.dumps(idea.frontmatter, indent=2, ensure_ascii=False)
     style_notes = _style_profile_prompt(style_profile)
     return f"""{style_notes}
-
-## Idea source
-S3 key: {idea.key}
 
 ## Frontmatter
 {frontmatter}
