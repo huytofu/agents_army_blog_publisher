@@ -193,10 +193,12 @@ IMAGE_CONFIG = {
     "PROVIDER": os.getenv("BLOG_IMAGE_PROVIDER", ""),
     "API_KEY": os.getenv("BLOG_IMAGE_API_KEY", ""),
     "MODEL": os.getenv("BLOG_IMAGE_MODEL", ""),
-    "COVER_WIDTH": _int_env("BLOG_IMAGE_COVER_WIDTH", 1200),
-    "COVER_HEIGHT": _int_env("BLOG_IMAGE_COVER_HEIGHT", 630),
-    "SUPPORTING_WIDTH": _int_env("BLOG_IMAGE_SUPPORTING_WIDTH", 630),
-    "SUPPORTING_HEIGHT": _int_env("BLOG_IMAGE_SUPPORTING_HEIGHT", 630),
+    # Display/layout sizes. Together calls are scaled in local_artifact_service
+    # so width * height stays inside [921600, 16777216]. 1200x630 is 756000 px.
+    "COVER_WIDTH": _int_env("BLOG_IMAGE_COVER_WIDTH", 1440),
+    "COVER_HEIGHT": _int_env("BLOG_IMAGE_COVER_HEIGHT", 720),
+    "SUPPORTING_WIDTH": _int_env("BLOG_IMAGE_SUPPORTING_WIDTH", 960),
+    "SUPPORTING_HEIGHT": _int_env("BLOG_IMAGE_SUPPORTING_HEIGHT", 960),
     "TIMEOUT_SEC": _int_env("BLOG_IMAGE_TIMEOUT_SEC", 120),
 }
 

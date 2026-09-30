@@ -11,6 +11,7 @@ import html
 import asyncio
 import json
 import logging
+import math
 import re
 import shutil
 from pathlib import Path
@@ -37,6 +38,11 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BLOG_API_BASE_URL = "https://461utcww9c.execute-api.ap-southeast-1.amazonaws.com"
 
+# Together Seedream rejects width * height outside this inclusive range.
+_TOGETHER_MIN_PIXELS = 921_600
+_TOGETHER_MAX_PIXELS = 16_777_216
+_TOGETHER_DIMENSION_STEP = 16
+
 _PLACEHOLDER_JPEG_BASE64 = (
     "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
     "////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////"
@@ -46,6 +52,69 @@ _PLACEHOLDER_JPEG_BASE64 = (
     "EBAAE/IV//2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH"
     "//EFBABAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z"
 )
+
+
+def _fit_together_image_size(width: int, height: int) -> tuple[int, int]:
+    """Scale image dimensions into Together Seedream's allowed pixel range.
+
+    The API requires ``921600 <= width * height <= 16777216``. Blog defaults
+    such as 1200x630 (756000 px) and 630x630 (396900 px) are below that floor,
+    and retrying the same request cannot succeed.
+    """
+    width = max(int(width), 1)
+    height = max(int(height), 1)
+    pixels = width * height
+    if (
+        _TOGETHER_MIN_PIXELS <= pixels <= _TOGETHER_MAX_PIXELS
+        and width % _TOGETHER_DIMENSION_STEP == 0
+        and height % _TOGETHER_DIMENSION_STEP == 0
+    ):
+        return width, height
+
+    if pixels < _TOGETHER_MIN_PIXELS:
+        scale = math.sqrt(_TOGETHER_MIN_PIXELS / pixels)
+    elif pixels > _TOGETHER_MAX_PIXELS:
+        scale = math.sqrt(_TOGETHER_MAX_PIXELS / pixels)
+    else:
+        scale = 1.0
+
+    fitted_width = _ceil_to_step(width * scale, _TOGETHER_DIMENSION_STEP)
+    fitted_height = _ceil_to_step(height * scale, _TOGETHER_DIMENSION_STEP)
+    for _ in range(10_000):
+        fitted_pixels = fitted_width * fitted_height
+        if _TOGETHER_MIN_PIXELS <= fitted_pixels <= _TOGETHER_MAX_PIXELS:
+            if (fitted_width, fitted_height) != (width, height):
+                logger.info(
+                    "Adjusted Together image size from %sx%s (%s px) to %sx%s (%s px).",
+                    width,
+                    height,
+                    pixels,
+                    fitted_width,
+                    fitted_height,
+                    fitted_pixels,
+                )
+            return fitted_width, fitted_height
+        if fitted_pixels > _TOGETHER_MAX_PIXELS:
+            if fitted_width >= fitted_height and fitted_width > _TOGETHER_DIMENSION_STEP:
+                fitted_width -= _TOGETHER_DIMENSION_STEP
+            elif fitted_height > _TOGETHER_DIMENSION_STEP:
+                fitted_height -= _TOGETHER_DIMENSION_STEP
+            else:
+                break
+        elif fitted_width / width <= fitted_height / height:
+            fitted_width += _TOGETHER_DIMENSION_STEP
+        else:
+            fitted_height += _TOGETHER_DIMENSION_STEP
+
+    raise LocalArtifactError(
+        "Could not fit image dimensions "
+        f"{width}x{height} into Together's pixel range "
+        f"[{_TOGETHER_MIN_PIXELS}, {_TOGETHER_MAX_PIXELS}]."
+    )
+
+
+def _ceil_to_step(value: float, step: int) -> int:
+    return max(step, math.ceil(value / step) * step)
 
 
 class LocalArtifactError(RuntimeError):
@@ -93,6 +162,7 @@ class ConfiguredImageProvider:
 
         api_key = str(self.config.get("API_KEY") or "").strip()
         client = Together(api_key=api_key) if api_key else Together()
+        width, height = _fit_together_image_size(width, height)
         try:
             response = client.images.generate(
                 prompt=prompt,
