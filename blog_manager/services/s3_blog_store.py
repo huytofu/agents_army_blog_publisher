@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 _BLOG_POSTS_START = "<!-- blog-posts:start -->"
 _BLOG_POSTS_END = "<!-- blog-posts:end -->"
 _SHORT_LIVED_CACHE_CONTROL = "max-age=300"
+_LONG_LIVED_IMAGE_CACHE_CONTROL = "public, max-age=31536000"
+_FEED_CACHE_CONTROL = "max-age=0, must-revalidate"
 
 
 class BlogStoreError(RuntimeError):
@@ -131,7 +133,7 @@ class S3BlogStore:
             self.feed_key,
             payload,
             content_type=POSTS_JSON_CONTENT_TYPE,
-            cache_control=_SHORT_LIVED_CACHE_CONTROL,
+            cache_control=_FEED_CACHE_CONTROL,
         )
         self.write_rss_feed(normalized)
         self.write_sitemap(normalized)
@@ -205,13 +207,17 @@ class S3BlogStore:
         relative_key = str(data["relative_key"]).lstrip("/")
         content_type = data["content_type"]
         self._require_bucket()
+        params: dict[str, Any] = {
+            "Bucket": self.bucket,
+            "Key": relative_key,
+            "ContentType": content_type,
+        }
+        cache_control = _artifact_cache_control(content_type)
+        if cache_control:
+            params["CacheControl"] = cache_control
         with local_path.open("rb") as file_obj:
-            self.client.put_object(
-                Bucket=self.bucket,
-                Key=relative_key,
-                Body=file_obj,
-                ContentType=content_type,
-            )
+            params["Body"] = file_obj
+            self.client.put_object(**params)
 
     def mark_idea_processed(self, idea: BlogIdea, *, slug: str, post_key: str) -> None:
         """Flip the original S3 idea file to processed after publication succeeds."""
@@ -258,6 +264,21 @@ class S3BlogStore:
             raise BlogStoreError("boto3 is required for S3 blog storage.") from exc
 
         return boto3.client("s3", **get_aws_client_kwargs())
+
+
+def _artifact_cache_control(content_type: str) -> str | None:
+    """Return cache policy for published post HTML and images.
+
+    HTML stays short so article edits show up quickly. Images use a one-year
+    public cache because their keys are stable filenames under the post slug.
+    Other artifact types are left unset.
+    """
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type == "text/html":
+        return _SHORT_LIVED_CACHE_CONTROL
+    if media_type.startswith("image/"):
+        return _LONG_LIVED_IMAGE_CACHE_CONTROL
+    return None
 
 
 def _replace_blog_index_links(html: str, entries: list[dict[str, Any]]) -> str | None:
