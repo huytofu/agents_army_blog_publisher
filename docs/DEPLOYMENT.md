@@ -138,7 +138,7 @@ docker buildx build \
   --platform linux/amd64 \
   --provenance=false \
   -f Dockerfile.lambda \
-  -t 169615917687.dkr.ecr.us-east-1.amazonaws.com/entourage-blog-publisher:latest \
+  -t <account_id>.dkr.ecr.us-east-1.amazonaws.com/entourage-blog-publisher:latest \
   --push \
   .
 ```
@@ -150,7 +150,7 @@ docker buildx build \
   --platform linux/amd64 \
   --provenance=false \
   -f Dockerfile.lambda \
-  -t 169615917687.dkr.ecr.ap-southeast-1.amazonaws.com/entourage-blog-publisher:latest \
+  -t <account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/entourage-blog-publisher:latest \
   --push \
   .
 ```
