@@ -16,7 +16,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urlencode, urljoin
 from urllib.request import Request, urlopen
 
 from blog_manager.config import BLOG_API_CONFIG, BLOG_STORAGE_CONFIG, IMAGE_CONFIG
@@ -346,6 +346,70 @@ class LocalArtifactService:
         return resolved
 
 
+_BLOG_CATEGORY_CAMPAIGNS = {
+    "purpose": "purpose",
+    "stoicism": "stoicism",
+    "relationships": "relationships",
+    "love": "love",
+    "inner work": "inner-work",
+    "productivity": "productivity",
+    "philosophy": "philosophy",
+    "habits": "habits",
+    "unknown": "unknown",
+}
+
+
+def _article_campaign_slug(category: str) -> str:
+    key = str(category or "").strip().casefold()
+    return _BLOG_CATEGORY_CAMPAIGNS.get(key, "unknown")
+
+
+def _store_get_url(*, campaign: str, content: str, store: str) -> str:
+    query = urlencode(
+        {
+            "utm_source": "blog",
+            "utm_medium": "cta",
+            "utm_campaign": campaign,
+            "utm_content": content,
+            "store": store,
+        }
+    )
+    return f"https://www.entourage-ai.life/get.html?{query}"
+
+
+def _render_store_cta(post: ExpandedPost) -> str:
+    """Bottom-of-article store badges. Google referrer swaps utm_source in the browser."""
+    campaign = _article_campaign_slug(post.category)
+    content = _validate_slug(post.slug)
+    ios = html.escape(_store_get_url(campaign=campaign, content=content, store="ios"))
+    android = html.escape(_store_get_url(campaign=campaign, content=content, store="android"))
+    return f"""<section class="store-cta" aria-labelledby="getAppTitle">
+            <h2 id="getAppTitle">Get Entourage Life <span class="gradient-text">today</span></h2>
+            <div class="stores">
+                <a class="store-btn" data-store-gate="article" href="{ios}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.377 0-2.332-1.26-3.428-2.8-1.287-1.82-2.323-4.63-2.323-7.28 0-4.28 2.797-6.55 5.552-6.55 1.448 0 2.675.95 3.6.95.865 0 2.222-1.01 3.902-1.01.613 0 2.886.06 4.374 2.19-.13.09-2.383 1.37-2.383 4.19 0 3.26 2.854 4.42 2.955 4.45z"/></svg>
+                    <span><small>Download on the</small>App Store</span>
+                </a>
+                <a class="store-btn" data-store-gate="article" href="{android}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#00d7fe" d="M3.6 1.8 13.3 12 3.6 22.2c-.4-.2-.6-.7-.6-1.2V3c0-.5.2-1 .6-1.2z"/><path fill="#ffce00" d="m16.6 15.4-3.3-3.4 3.3-3.4 4 2.3c1.1.6 1.1 1.6 0 2.2z"/><path fill="#ff3a44" d="M16.6 15.4 13.3 12 3.6 22.2c.4.3 1 .3 1.6 0z"/><path fill="#00f076" d="M16.6 8.6 5.2 1.8c-.6-.3-1.2-.3-1.6 0L13.3 12z"/></svg>
+                    <span><small>Get it on</small>Google Play</span>
+                </a>
+            </div>
+        </section>
+        <script>
+            (function () {{
+                var host = '';
+                try {{ host = new URL(document.referrer).hostname; }} catch (e) {{ return; }}
+                if (!/(^|\\.)google\\./i.test(host)) return;
+                document.querySelectorAll('a[data-store-gate="article"]').forEach(function (link) {{
+                    var url = new URL(link.href);
+                    url.searchParams.set('utm_source', 'google');
+                    link.href = url.toString();
+                }});
+            }})();
+        </script>"""
+
+
 def render_article_html(
     post: ExpandedPost,
     *,
@@ -372,6 +436,7 @@ def render_article_html(
     content_note = _render_safety_notes(post.safety_notes)
     references = _render_citation_suggestions(post.citation_suggestions)
     growth_sections = _render_growth_sections(post, posts_feed=posts_feed)
+    store_cta = _render_store_cta(post)
     blog_api_base_url = html.escape(_blog_api_base_url())
     article_script = _render_article_script(post)
 
@@ -400,7 +465,7 @@ def render_article_html(
 {structured_data}
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.7; color: #1f2937; margin: 0; background: #f9fafb; }}
-        main {{ max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem 4rem; background: #ffffff; }}
+        main {{ max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; background: #ffffff; }}
         .cover {{ width: 100%; height: auto; border-radius: 16px; margin: 1.5rem 0; object-fit: cover; }}
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
@@ -422,7 +487,14 @@ def render_article_html(
         .subscribe-status.is-error {{ background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }}
         .comments-section, .share-actions {{ background: #f9fafb; border: 1px solid #e5e7eb; }}
         .share-actions h2 {{ margin: 0 0 0.75rem; }}
-        .share-copy-row {{ margin-bottom: 0.75rem; }}
+        .share-copy-row {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }}
+        .share-copy-row h2 {{ margin: 0; }}
         .share-links {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem 0.75rem; }}
         .share-links a {{ display: inline-block; }}
         .copy-link-button {{ background: #6366f1; border: none; border-radius: 999px; color: white; cursor: pointer; font: inherit; font-weight: 700; padding: 0.4rem 0.9rem; }}
@@ -430,6 +502,14 @@ def render_article_html(
         p {{ margin: 1rem 0; }}
         a {{ color: #4f46e5; }}
         blockquote {{ border-left: 4px solid #6366f1; margin: 1.5rem 0; padding-left: 1rem; color: #4b5563; }}
+        .store-cta {{ position: relative; margin: 2rem -1.25rem -4rem; padding: 2.6rem 1.25rem 2.8rem; text-align: center; color: #fff; overflow: hidden; background: radial-gradient(520px 200px at 50% 130%, rgba(196, 181, 253, 0.55), transparent 62%), radial-gradient(420px 180px at 8% -30%, rgba(125, 211, 252, 0.4), transparent 60%), linear-gradient(165deg, #4f46e5 0%, #6d5bd0 55%, #7c6bb8 100%); }}
+        .store-cta h2 {{ color: #fff; font-size: clamp(1.35rem, 3vw, 1.8rem); font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; margin: 0 auto 1.1rem; max-width: 16em; }}
+        .store-cta .gradient-text {{ background: linear-gradient(92deg, #6ee7b7 0%, #67e8f9 45%, #ddd6fe 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }}
+        .store-cta .stores {{ display: flex; flex-wrap: wrap; gap: 0.9rem; justify-content: center; }}
+        .store-cta .store-btn {{ position: relative; display: inline-flex; align-items: center; gap: 0.75rem; padding: 0.7rem 1.35rem 0.7rem 1rem; border-radius: 14px; background: #fff; color: #0f172a; text-decoration: none; font-weight: 700; line-height: 1.15; overflow: hidden; box-shadow: 0 14px 30px -12px rgba(15, 23, 42, 0.45); }}
+        .store-cta .store-btn small {{ display: block; font-size: 0.68rem; font-weight: 600; opacity: 0.65; letter-spacing: 0.02em; }}
+        .store-cta .store-btn span {{ display: block; font-size: 1rem; text-align: left; }}
+        .store-cta .store-btn svg {{ width: 26px; height: 26px; flex-shrink: 0; }}
     </style>
 </head>
 <body>
@@ -445,6 +525,7 @@ def render_article_html(
             {references}
         </article>
         {growth_sections}
+        {store_cta}
     </main>
 {article_script}
 </body>
@@ -851,12 +932,11 @@ def _render_growth_sections(
         </section>
         {related_posts}
         <section class="share-actions">
-            <h2>Share this post</h2>
             <div class="share-copy-row">
+                <h2>Share this post</h2>
                 <button type="button" class="copy-link-button" data-copy-link="{share_url_attr}" onclick="var b=this;var t=b.textContent;navigator.clipboard.writeText(b.dataset.copyLink).then(function(){{b.textContent='Link copied!';setTimeout(function(){{b.textContent=t;}},2000);}});">Copy link</button>
             </div>
             <div class="share-links">
-                <a href="mailto:?subject={subject}&body={article_path}">Share by email</a>
                 <a href="https://www.facebook.com/sharer/sharer.php?u={article_path}">Share on Facebook</a>
                 <a href="https://www.linkedin.com/sharing/share-offsite/?url={article_path}">Share on LinkedIn</a>
                 <a href="https://twitter.com/intent/tweet?text={subject}&url={article_path}">Share on X</a>
