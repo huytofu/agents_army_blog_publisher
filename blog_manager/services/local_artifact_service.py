@@ -460,7 +460,7 @@ def render_article_html(
     <meta name="twitter:description" content="{seo_description}">
     <meta name="twitter:image" content="{cover_url}">
     <meta property="article:published_time" content="{html.escape(post.date)}">
-    <link rel="alternate" type="application/rss+xml" title="ENTOURAGE Blog" href="{rss_url}">
+    <link rel="alternate" type="application/rss+xml" title="Entourage Life Blog" href="{rss_url}">
 {article_meta_tags}
 {structured_data}
     <style>
@@ -911,7 +911,7 @@ def _render_growth_sections(
     return f"""
         <section class="subscribe-cta">
             <h2>Get the weekly highlight</h2>
-            <p>Get one weekly highlight, no spam. We send the strongest reflection from the ENTOURAGE blog each week.</p>
+            <p>Get one weekly highlight, no spam. We send the strongest reflection from the Entourage Life blog each week.</p>
             <form data-blog-api-placeholder="subscribe" action="#" method="post">
                 <label for="subscriber-email">Email address</label>
                 <input id="subscriber-email" name="email" type="email" placeholder="you@example.com" autocomplete="email" required>
@@ -921,7 +921,7 @@ def _render_growth_sections(
         </section>
         <section id="comments" class="comments-section" data-blog-api-placeholder="comments" data-post-slug="{slug}">
             <h2>Join the conversation</h2>
-            <p>What did this bring up for you? Share a moderated reflection with the ENTOURAGE community.</p>
+            <p>What did this bring up for you? Share a moderated reflection with the Entourage Life community.</p>
             <div id="commentsAuthState" class="comments-auth-state blog-auth-state"></div>
             <form id="commentComposer" class="comment-composer" hidden>
                 <textarea name="body" maxlength="2000" required placeholder="Share your reflection..."></textarea>
