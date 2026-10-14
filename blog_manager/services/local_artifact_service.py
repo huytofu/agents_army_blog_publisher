@@ -516,7 +516,7 @@ def render_article_html(
     <main>
         <p><a href="../../blogs.html">Back to Blog</a></p>
         <article>
-            <p class="meta">{html.escape(post.date)}</p>
+            <p class="meta">Entourage Life · {html.escape(post.date)}</p>
             <h1>{title}</h1>
             <p class="excerpt"><strong>{excerpt}</strong></p>
             <img class="cover" src="{cover_path}" width="{cover_width}" height="{cover_height}" alt="{title}">
@@ -732,13 +732,43 @@ def _blog_posting_schema(post: ExpandedPost) -> dict[str, object]:
     return {
         "@context": "https://schema.org",
         "@type": "BlogPosting",
-        "headline": post.seo_title or post.title,
+        "headline": post.title,
         "description": post.seo_description or post.excerpt,
         "datePublished": post.date,
-        "image": _cover_image_url(post),
-        "mainEntityOfPage": _article_url(post),
+        "image": {
+            "@type": "ImageObject",
+            "url": _cover_image_url(post),
+            "width": int(IMAGE_CONFIG["COVER_WIDTH"]),
+            "height": int(IMAGE_CONFIG["COVER_HEIGHT"]),
+        },
+        "author": _article_author(),
+        "publisher": _publisher_organization(),
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": _article_url(post),
+        },
         "keywords": keywords,
         "articleSection": post.category,
+    }
+
+
+def _article_author() -> dict[str, str]:
+    return {
+        "@type": "Organization",
+        "name": "Entourage Life",
+        "url": _site_url(),
+    }
+
+
+def _publisher_organization() -> dict[str, object]:
+    return {
+        "@type": "Organization",
+        "name": "Entourage Life",
+        "url": _site_url(),
+        "logo": {
+            "@type": "ImageObject",
+            "url": _absolute_url("logo_transparent.png"),
+        },
     }
 
 

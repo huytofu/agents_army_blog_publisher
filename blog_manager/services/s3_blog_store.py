@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 _BLOG_POSTS_START = "<!-- blog-posts:start -->"
 _BLOG_POSTS_END = "<!-- blog-posts:end -->"
+_BLOG_SCHEMA_START = "<!-- blog-schema:start -->"
+_BLOG_SCHEMA_END = "<!-- blog-schema:end -->"
 _SHORT_LIVED_CACHE_CONTROL = "max-age=300"
 _LONG_LIVED_IMAGE_CACHE_CONTROL = "public, max-age=31536000"
 _FEED_CACHE_CONTROL = "max-age=0, must-revalidate"
@@ -174,7 +176,11 @@ class S3BlogStore:
                 return
             raise
 
-        updated_html = _replace_blog_index_links(current_html, _sort_feed([dict(item) for item in entries]))
+        updated_html = _replace_blog_index_links(
+            current_html,
+            _sort_feed([dict(item) for item in entries]),
+            site_url=_site_url(self.config),
+        )
         if updated_html is None:
             logger.warning("Blog index %s has no blog-posts markers; skipping crawlable link rewrite.", key)
             return
@@ -281,14 +287,100 @@ def _artifact_cache_control(content_type: str) -> str | None:
     return None
 
 
-def _replace_blog_index_links(html: str, entries: list[dict[str, Any]]) -> str | None:
-    """Return HTML with the marker block replaced, or None when markers are absent."""
-    start = html.find(_BLOG_POSTS_START)
-    end = html.find(_BLOG_POSTS_END)
+def _replace_blog_index_links(html: str, entries: list[dict[str, Any]], *, site_url: str) -> str | None:
+    """Return HTML with the crawlable links and article schema replaced.
+
+    Link markers are required. Schema markers are updated when present so an
+    older index still receives the crawlable list.
+    """
+    updated = _replace_marked_block(html, _BLOG_POSTS_START, _BLOG_POSTS_END, _render_blog_index_links(entries))
+    if updated is None:
+        return None
+    with_schema = _replace_marked_block(
+        updated,
+        _BLOG_SCHEMA_START,
+        _BLOG_SCHEMA_END,
+        _render_blog_schema_block(entries, site_url),
+    )
+    return with_schema if with_schema is not None else updated
+
+
+def _replace_marked_block(html: str, start_marker: str, end_marker: str, replacement: str) -> str | None:
+    start = html.find(start_marker)
+    end = html.find(end_marker)
     if start < 0 or end < 0 or end < start:
         return None
-    links = _render_blog_index_links(entries)
-    return f"{html[: start + len(_BLOG_POSTS_START)]}{links}{html[end:]}"
+    return f"{html[: start + len(start_marker)]}{replacement}{html[end:]}"
+
+
+def _render_blog_schema_block(entries: list[dict[str, Any]], site_url: str) -> str:
+    payload = _blog_index_schema(entries, site_url)
+    json_text = json.dumps(payload, ensure_ascii=False, indent=2).replace("<", "\\u003c")
+    return (
+        '\n    <script type="application/ld+json" id="blog-article-schema">\n'
+        f"{json_text}\n"
+        "    </script>\n    "
+    )
+
+
+def _blog_index_schema(entries: list[dict[str, Any]], site_url: str) -> list[dict[str, Any]]:
+    """Return one self-contained BlogPosting per post.
+
+    Google's Rich Results Test only reports Article, NewsArticle, or BlogPosting.
+    A Blog or Organization object on the index is ignored, which shows up as
+    "No items detected".
+    """
+    origin = site_url if site_url.endswith("/") else f"{site_url}/"
+    postings: list[dict[str, Any]] = []
+    for entry in entries:
+        posting = _blog_posting_from_entry(entry, origin)
+        if posting is None:
+            continue
+        postings.append({"@context": "https://schema.org", **posting})
+    return postings
+
+
+def _blog_posting_from_entry(entry: dict[str, Any], site_url: str) -> dict[str, Any] | None:
+    slug = str(entry.get("slug") or "").strip()
+    if not slug:
+        return None
+    content_path = str(entry.get("contentPath") or f"blog/{slug}/index.html").strip()
+    url = _absolute_url(content_path, site_url)
+    title = str(entry.get("title") or "Untitled Post").strip() or "Untitled Post"
+    posting: dict[str, Any] = {
+        "@type": "BlogPosting",
+        "@id": f"{url}#article",
+        "headline": title,
+        "url": url,
+        "mainEntityOfPage": url,
+        "author": {
+            "@type": "Organization",
+            "name": "Entourage Life",
+            "url": site_url,
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": "Entourage Life",
+            "url": site_url,
+            "logo": {
+                "@type": "ImageObject",
+                "url": _absolute_url("logo_transparent.png", site_url),
+            },
+        },
+    }
+    date = str(entry.get("date") or "").strip()
+    if date:
+        posting["datePublished"] = date
+    excerpt = str(entry.get("excerpt") or "").strip()
+    if excerpt:
+        posting["description"] = excerpt
+    cover = str(entry.get("coverImage") or "").strip()
+    if cover:
+        posting["image"] = _absolute_url(cover, site_url)
+    category = str(entry.get("category") or "").strip()
+    if category and category.casefold() != "unknown":
+        posting["articleSection"] = category
+    return posting
 
 
 def _render_blog_index_links(entries: list[dict[str, Any]]) -> str:
