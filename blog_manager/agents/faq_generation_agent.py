@@ -1,4 +1,4 @@
-"""FAQ schema generation agent for crawler-facing JSON-LD data."""
+"""FAQ generation for the visible article section and FAQPage JSON-LD."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 FAQ_GENERATION_PROMPT = """You are faq_schema_agent, a focused Entourage blog metadata specialist.
 
 MISSION:
-Generate concise FAQ items for crawler-facing FAQPage JSON-LD schema.
+Generate concise FAQ items. The publisher renders the same items as a visible "Questions readers ask" section and as FAQPage JSON-LD. Do not write them into the article body.
 
 RESPONSIBILITIES:
 - Read the finalized expanded post from the observation.

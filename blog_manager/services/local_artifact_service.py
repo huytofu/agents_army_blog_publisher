@@ -435,6 +435,8 @@ def render_article_html(
     structured_data = _structured_data_scripts(post)
     content_note = _render_safety_notes(post.safety_notes)
     references = _render_citation_suggestions(post.citation_suggestions)
+    faq_section = _render_faq_section(post)
+    app_section = _render_app_section_link(post)
     growth_sections = _render_growth_sections(post, posts_feed=posts_feed)
     store_cta = _render_store_cta(post)
     blog_api_base_url = html.escape(_blog_api_base_url())
@@ -472,6 +474,9 @@ def render_article_html(
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
         .excerpt {{ color: #5b21b6; font-size: 1.05rem; }}
         .content-note, .reference-list {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .article-faq, .app-feature-link {{ background: #f8fafc; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
+        .article-faq dt {{ font-weight: 800; margin-top: 0.8rem; }}
+        .article-faq dd {{ margin: 0.3rem 0 0; }}
         .callout {{ background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 12px; margin: 1.5rem 0; padding: 1rem 1.25rem; }}
         .callout h4 {{ margin: 0 0 0.5rem; }}
         .section-divider {{ border: 0; border-top: 1px solid #e5e7eb; margin: 2rem 0; }}
@@ -523,8 +528,10 @@ def render_article_html(
             {body}
             {content_note}
             {references}
+            {faq_section}
         </article>
         {growth_sections}
+        {app_section}
         {store_cta}
     </main>
 {article_script}
@@ -823,19 +830,78 @@ def _render_safety_notes(safety_notes: list[str]) -> str:
     )
 
 
+_APP_SECTION_BY_CATEGORY: dict[str, tuple[str, str]] = {
+    "inner work": (
+        "https://www.entourage-ai.life/emotional-healing.html",
+        "Meditation for emotional healing",
+    ),
+    "habits": ("https://www.entourage-ai.life/#habits", "Habit tracking in Entourage Life"),
+    "productivity": ("https://www.entourage-ai.life/#habits", "Habit tracking in Entourage Life"),
+    "love": ("https://www.entourage-ai.life/#journal", "Mood and emotion journaling"),
+    "philosophy": ("https://www.entourage-ai.life/#journal", "Mood and emotion journaling"),
+    "purpose": ("https://www.entourage-ai.life/#journal", "Mood and emotion journaling"),
+    "stoicism": ("https://www.entourage-ai.life/#journal", "Mood and emotion journaling"),
+    "relationships": ("https://www.entourage-ai.life/#journal", "Mood and emotion journaling"),
+    "unknown": ("https://www.entourage-ai.life/#meditate", "AI meditation in your own voice"),
+}
+
+_CITATION_URL_RE = re.compile(
+    r"^https://(?:doi\.org|dx\.doi\.org|pubmed\.ncbi\.nlm\.nih\.gov|openlibrary\.org)/\S+$"
+)
+
+
+def _render_faq_section(post: ExpandedPost) -> str:
+    parts: list[str] = []
+    for item in post.faq_items:
+        question = str(item.get("question") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if not question or not answer:
+            continue
+        parts.append(f"<dt>{html.escape(question)}</dt><dd>{html.escape(answer)}</dd>")
+    if not parts:
+        return ""
+    return (
+        '<section class="article-faq"><h2>Questions readers ask</h2><dl>'
+        + "".join(parts)
+        + "</dl></section>"
+    )
+
+
+def _render_app_section_link(post: ExpandedPost) -> str:
+    key = str(post.category or "").strip().casefold()
+    url, label = _APP_SECTION_BY_CATEGORY.get(
+        key,
+        _APP_SECTION_BY_CATEGORY["unknown"],
+    )
+    return (
+        '<section class="app-feature-link"><h2>In the app</h2><p><a href="'
+        + html.escape(url, quote=True)
+        + '">'
+        + html.escape(label)
+        + "</a></p></section>"
+    )
+
+
 def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
     items = [str(item or "").strip() for item in citation_suggestions if str(item or "").strip()]
     if not items:
         return ""
-    items = items[:_MAX_CITATION_SUGGESTIONS]
-    list_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
+    rendered: list[str] = []
+    for item in items[:_MAX_CITATION_SUGGESTIONS]:
+        label, separator, url = item.partition(" | ")
+        href = url.strip()
+        if separator and _CITATION_URL_RE.match(href):
+            rendered.append(
+                f'<li><a href="{html.escape(href, quote=True)}">{html.escape(label.strip())}</a></li>'
+            )
+        elif separator:
+            rendered.append(f"<li>{html.escape(label.strip())}</li>")
+        else:
+            rendered.append(f"<li>{html.escape(item)}</li>")
     return (
-        '<section class="reference-list">'
-        "<h2>References worth exploring</h2>"
-        "<ul>"
-        f"{list_items}"
-        "</ul>"
-        "</section>"
+        '<section class="reference-list"><h2>References worth exploring</h2><ul>'
+        + "".join(rendered)
+        + "</ul></section>"
     )
 
 

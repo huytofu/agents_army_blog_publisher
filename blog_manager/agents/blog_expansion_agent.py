@@ -131,14 +131,15 @@ IMPORTANT INSTRUCTIONS:
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
 - Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
-- Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown.
+- Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Love|Philosophy|Unknown. Prefer `Inner Work` or `Habits` when the idea is about emotional healing, subconscious patterns, mindfulness, or habit formation. Use another category only when the idea is clearly about that other topic.
 - Pick one long-tail `primary_keyword`.
 a) Use the primary keyword naturally in the opening paragraph, `seo_title`, and `seo_description`.
 b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
 
 GOOD TO HAVE:
 - Include maximum 2 optional reader-facing `safety_notes` for any claims that the reader should be cautious about. Omit the field if there are no useful notes.
-- Include maximum 2 optional reader-facing `citation_suggestions` for credible books, researchers, or studies. Omit the field if there are no useful suggestions. 
+- Include maximum 2 optional reader-facing `citation_suggestions`. Each item is `Author, Title (Year)` or `Author, Title (Year) | https://...`. Omit the field if there are no useful suggestions. 
+Use a URL only when it is a real DOI, PubMed, or Open Library link you are sure of (`https://doi.org/...`, `https://pubmed.ncbi.nlm.nih.gov/...`, or `https://openlibrary.org/...`). If you are not sure, omit the URL and the ` | `. Do not invent URLs.
 
 BOUNDARIES:
 - Do not fabricate citations, URLs, people's names, study details, credentials.
