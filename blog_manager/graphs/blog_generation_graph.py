@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
 import logging
 import re
@@ -15,6 +15,7 @@ from blog_manager.agents import (
     BlogPipelineAgent,
     HtmlAgent,
     ImageAgent,
+    InfographicAgent,
 )
 from blog_manager.agents.blog_pipeline_agent import build_pre_faq_generation_observation
 from blog_manager.config import WORKER_CONFIG
@@ -32,6 +33,7 @@ from blog_manager.schemas import (
     BlogPipelineDecision,
     HtmlArtifactState,
     ImageArtifactState,
+    LocalArtifact,
 )
 from blog_manager.services.local_artifact_service import LocalArtifactService
 from blog_manager.services.s3_blog_store import S3BlogStore
@@ -49,6 +51,12 @@ class BlogGraphError(RuntimeError):
     """Raised when the blog generation graph cannot continue safely."""
 
 
+@dataclass(frozen=True)
+class _InfographicOutcome:
+    artifact: LocalArtifact | None = None
+    error: str = ""
+
+
 class BlogGenerationWorkflow:
     """Dependency container for graph nodes.
 
@@ -64,6 +72,7 @@ class BlogGenerationWorkflow:
         faq_agent: FaqGenerationAgent | None = None,
         html_agent: HtmlAgent | None = None,
         image_agent: ImageAgent | None = None,
+        infographic_agent: InfographicAgent | None = None,
         artifact_service: LocalArtifactService | None = None,
         s3_store: S3BlogStore | None = None,
         config: dict[str, Any] | None = None,
@@ -73,6 +82,7 @@ class BlogGenerationWorkflow:
         self.faq_agent = faq_agent or FaqGenerationAgent()
         self.html_agent = html_agent or HtmlAgent()
         self.image_agent = image_agent or ImageAgent()
+        self.infographic_agent = infographic_agent or InfographicAgent()
         self.artifact_service = artifact_service or LocalArtifactService()
         self.s3_store = s3_store
         self.config = config or WORKER_CONFIG
@@ -167,9 +177,10 @@ class BlogGenerationWorkflow:
             retry_count=state.image_retry_count,
         )
         posts_feed = self._read_posts_feed_for_related_posts()
-        html_result, image_result = await asyncio.gather(
+        html_result, image_result, infographic_result = await asyncio.gather(
             self.run_html_subgraph(html_state, posts_feed=posts_feed),
             self.run_image_subgraph(image_state),
+            self.run_infographic_once(state),
         )
 
         return replace(
@@ -179,6 +190,9 @@ class BlogGenerationWorkflow:
             image_artifacts=image_result.artifacts,
             html_retry_count=html_result.retry_count,
             image_retry_count=image_result.retry_count,
+            infographic_artifact=infographic_result.artifact,
+            infographic_error=infographic_result.error,
+            infographic_attempted=True,
             artifact_round=state.artifact_round + 1,
             errors=[*state.errors, *html_result.errors, *image_result.errors],
         )
@@ -257,6 +271,24 @@ class BlogGenerationWorkflow:
                 )
         return current
 
+    async def run_infographic_once(self, state: BlogGraphState) -> _InfographicOutcome:
+        """Generate one Pinterest pin. Failures stay off BlogGraphState.errors."""
+        if state.infographic_attempted:
+            logger.info("Pinterest infographic already attempted; skipping another render.")
+            return _InfographicOutcome(
+                artifact=state.infographic_artifact,
+                error=state.infographic_error,
+            )
+        if state.expanded_post is None:
+            return _InfographicOutcome(error="Cannot generate infographic without expanded content.")
+        try:
+            artifact = await self.infographic_agent.create_infographic(state.expanded_post)
+            return _InfographicOutcome(artifact=artifact)
+        except Exception as exc:
+            message = f"Pinterest infographic generation failed: {exc}"
+            logger.warning(message)
+            return _InfographicOutcome(error=message)
+
     async def main_review_artifacts(self, state: BlogGraphState) -> BlogGraphState:
         decision = await self.pipeline_agent.review_artifacts(state)
         return _with_decision(replace(state, main_round=state.main_round + 1), decision)
@@ -307,6 +339,14 @@ class BlogGenerationWorkflow:
         self.s3_store.upload_local_artifact(state.html_artifact)
         for artifact in state.image_artifacts:
             self.s3_store.upload_local_artifact(artifact)
+        if state.infographic_artifact is None:
+            return state
+        try:
+            self.s3_store.upload_local_artifact(state.infographic_artifact)
+        except Exception as exc:
+            message = f"Pinterest infographic upload failed: {exc}"
+            logger.warning(message)
+            return replace(state, infographic_error=state.infographic_error or message)
         return state
 
     async def mark_processed(self, state: BlogGraphState) -> BlogGraphState:

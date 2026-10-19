@@ -194,5 +194,8 @@ class BlogGraphState:
     artifact_round: int = 0
     html_retry_count: int = 0
     image_retry_count: int = 0
+    infographic_artifact: LocalArtifact | None = None
+    infographic_error: str = ""
+    infographic_attempted: bool = False
     publish_ready: bool = False
     errors: list[str] = field(default_factory=list)

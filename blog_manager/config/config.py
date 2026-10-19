@@ -202,6 +202,17 @@ IMAGE_CONFIG = {
     "TIMEOUT_SEC": _int_env("BLOG_IMAGE_TIMEOUT_SEC", 120),
 }
 
+INFOGRAPHIC_IMAGE_CONFIG = {
+    "PROVIDER": os.getenv("BLOG_INFOGRAPHIC_IMAGE_PROVIDER", os.getenv("BLOG_IMAGE_PROVIDER", "")),
+    "API_KEY": os.getenv("BLOG_INFOGRAPHIC_IMAGE_API_KEY", os.getenv("BLOG_IMAGE_API_KEY", "")),
+    "MODEL": os.getenv("BLOG_INFOGRAPHIC_IMAGE_MODEL", "ideogram/ideogram-4.0"),
+    # Pinterest standard 2:3. 1024x1536 is exactly 2:3, divisible by 16, and
+    # inside Together's pixel range [921600, 16777216].
+    "WIDTH": _int_env("BLOG_INFOGRAPHIC_WIDTH", 1024),
+    "HEIGHT": _int_env("BLOG_INFOGRAPHIC_HEIGHT", 1536),
+    "TIMEOUT_SEC": _int_env("BLOG_INFOGRAPHIC_IMAGE_TIMEOUT_SEC", _int_env("BLOG_IMAGE_TIMEOUT_SEC", 120)),
+}
+
 WORKER_CONFIG = {
     "MAX_IDEAS_PER_RUN": BLOG_STORAGE_CONFIG["MAX_IDEAS_PER_RUN"],
     "DRY_RUN": BLOG_STORAGE_CONFIG["DRY_RUN"],

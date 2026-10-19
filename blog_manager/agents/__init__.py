@@ -17,6 +17,11 @@ from blog_manager.agents.faq_generation_agent import (
 )
 from blog_manager.agents.html_agent import HTML_SUBAGENT_PROMPT, HtmlAgent
 from blog_manager.agents.image_agent import IMAGE_SUBAGENT_PROMPT, ImageAgent
+from blog_manager.agents.infographic_agent import (
+    INFOGRAPHIC_SUBAGENT_PROMPT,
+    InfographicAgent,
+    InfographicAgentError,
+)
 
 __all__ = [
     "BlogExpansionAgent",
@@ -30,6 +35,9 @@ __all__ = [
     "HtmlAgent",
     "IMAGE_SUBAGENT_PROMPT",
     "ImageAgent",
+    "INFOGRAPHIC_SUBAGENT_PROMPT",
+    "InfographicAgent",
+    "InfographicAgentError",
     "PIPELINE_SYSTEM_PROMPT",
     "SYSTEM_PROMPT",
 ]

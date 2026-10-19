@@ -19,10 +19,17 @@ from typing import Protocol
 from urllib.parse import quote, urlencode, urljoin
 from urllib.request import Request, urlopen
 
-from blog_manager.config import BLOG_API_CONFIG, BLOG_STORAGE_CONFIG, IMAGE_CONFIG
+from blog_manager.config import (
+    BLOG_API_CONFIG,
+    BLOG_STORAGE_CONFIG,
+    IMAGE_CONFIG,
+    INFOGRAPHIC_IMAGE_CONFIG,
+)
 from blog_manager.constants import (
     COVER_IMAGE_CONTENT_TYPE,
     COVER_IMAGE_FILENAME,
+    PINTEREST_INFOGRAPHIC_CONTENT_TYPE,
+    PINTEREST_INFOGRAPHIC_FILENAME,
     POST_HTML_CONTENT_TYPE,
     POST_HTML_FILENAME,
 )
@@ -218,9 +225,13 @@ class LocalArtifactService:
         self,
         work_root: str | Path | None = None,
         image_provider: ImageProvider | None = None,
+        infographic_image_provider: ImageProvider | None = None,
     ):
         self.work_root = Path(work_root or BLOG_STORAGE_CONFIG["LOCAL_WORK_ROOT"]).resolve()
         self.image_provider = image_provider or ConfiguredImageProvider()
+        self.infographic_image_provider = infographic_image_provider or ConfiguredImageProvider(
+            INFOGRAPHIC_IMAGE_CONFIG
+        )
 
     def write_article_html(
         self,
@@ -284,6 +295,24 @@ class LocalArtifactService:
                 "filename": filename,
                 "alt_text": supporting_image.alt_text,
             },
+        )
+
+    async def create_pinterest_jpg(self, post: ExpandedPost, *, prompt: str) -> LocalArtifact:
+        """Generate one local Pinterest infographic JPEG. Does not affect cover images."""
+        slug = _validate_slug(post.slug)
+        output_path = self._post_dir(slug) / PINTEREST_INFOGRAPHIC_FILENAME
+        image_bytes = await self.infographic_image_provider.generate_jpeg(
+            prompt=prompt,
+            width=int(INFOGRAPHIC_IMAGE_CONFIG["WIDTH"]),
+            height=int(INFOGRAPHIC_IMAGE_CONFIG["HEIGHT"]),
+        )
+        jpeg_bytes = _coerce_jpeg(image_bytes)
+        _write_bytes(output_path, jpeg_bytes)
+        return LocalArtifact(
+            local_path=str(output_path),
+            relative_key=f"blog/{slug}/{PINTEREST_INFOGRAPHIC_FILENAME}",
+            content_type=PINTEREST_INFOGRAPHIC_CONTENT_TYPE,
+            metadata={"slug": slug, "artifact_type": "pinterest_infographic"},
         )
 
     def clear_post_artifacts(self, slug: str) -> None:
@@ -1132,6 +1161,27 @@ def _validate_supporting_image_filename(filename: str) -> str:
 def _validate_jpeg(image_bytes: bytes) -> None:
     if not image_bytes.startswith(b"\xff\xd8"):
         raise LocalArtifactError("Image provider did not return JPEG bytes.")
+
+
+def _coerce_jpeg(image_bytes: bytes) -> bytes:
+    """Accept JPEG bytes, or convert a PNG response into JPEG."""
+    if image_bytes.startswith(b"\xff\xd8"):
+        return image_bytes
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return _png_bytes_to_jpeg(image_bytes)
+    raise LocalArtifactError("Infographic provider did not return JPEG or PNG bytes.")
+
+
+def _png_bytes_to_jpeg(image_bytes: bytes) -> bytes:
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        rgb = image.convert("RGB")
+        buffer = io.BytesIO()
+        rgb.save(buffer, format="JPEG", quality=90)
+        return buffer.getvalue()
 
 
 def _write_text(path: Path, content: str) -> None:
