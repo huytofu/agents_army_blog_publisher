@@ -315,6 +315,14 @@ class LocalArtifactService:
             metadata={"slug": slug, "artifact_type": "pinterest_infographic"},
         )
 
+    def insert_pinterest_infographic(self, html_path: str, *, alt: str) -> None:
+        """Insert the pin after the article body when the image was generated."""
+        path = self._safe_path(html_path)
+        html_text = path.read_text(encoding="utf-8")
+        updated = _insert_pinterest_figure(html_text, alt=alt)
+        if updated != html_text:
+            path.write_text(updated, encoding="utf-8")
+
     def clear_post_artifacts(self, slug: str) -> None:
         """Delete all local artifacts for one post slug.
 
@@ -500,6 +508,8 @@ def render_article_html(
         .cover {{ width: 100%; height: auto; border-radius: 16px; margin: 1.5rem 0; object-fit: cover; }}
         .supporting-figure {{ margin: 1.5rem auto; max-width: 520px; }}
         .supporting-image {{ display: block; width: 100%; max-width: 100%; max-height: 360px; border-radius: 12px; object-fit: cover; }}
+        .pinterest-infographic {{ margin: 2rem auto; max-width: 420px; text-align: center; }}
+        .pinterest-infographic img {{ display: block; height: auto; margin: 0 auto; max-width: 100%; width: 100%; }}
         .meta {{ color: #6b7280; font-size: 0.95rem; }}
         .excerpt {{ color: #5b21b6; font-size: 1.05rem; }}
         .content-note, .reference-list {{ background: #fff7ed; border-left: 4px solid #f97316; border-radius: 12px; margin-top: 2rem; padding: 1rem 1.25rem; }}
@@ -841,6 +851,38 @@ def _json_ld_script(payload: dict[str, object]) -> str:
 
 _MAX_SAFETY_NOTES = 2
 _MAX_CITATION_SUGGESTIONS = 2
+
+
+_PINTEREST_FIGURE_ANCHORS = (
+    '<section class="content-note">',
+    '<section class="reference-list">',
+    '<section class="article-faq">',
+    "</article>",
+)
+
+
+def _pinterest_figure_html(*, alt: str) -> str:
+    safe_alt = html.escape(alt.strip() or "Infographic")
+    width = int(INFOGRAPHIC_IMAGE_CONFIG["WIDTH"])
+    height = int(INFOGRAPHIC_IMAGE_CONFIG["HEIGHT"])
+    return (
+        '<figure class="pinterest-infographic">'
+        f'<img src="{PINTEREST_INFOGRAPHIC_FILENAME}" width="{width}" height="{height}" alt="{safe_alt}">'
+        "</figure>"
+    )
+
+
+def _insert_pinterest_figure(html_text: str, *, alt: str) -> str:
+    """Place the pin after the article body and before the content note."""
+    if 'class="pinterest-infographic"' in html_text:
+        return html_text
+    figure = _pinterest_figure_html(alt=alt)
+    for anchor in _PINTEREST_FIGURE_ANCHORS:
+        index = html_text.find(anchor)
+        if index == -1:
+            continue
+        return html_text[:index] + figure + "\n            " + html_text[index:]
+    return html_text
 
 
 def _render_safety_notes(safety_notes: list[str]) -> str:

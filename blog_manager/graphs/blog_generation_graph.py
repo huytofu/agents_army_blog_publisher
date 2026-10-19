@@ -182,6 +182,12 @@ class BlogGenerationWorkflow:
             self.run_image_subgraph(image_state),
             self.run_infographic_once(state),
         )
+        infographic_error = self._include_pinterest_in_article(
+            html_artifact=html_result.artifact,
+            infographic_artifact=infographic_result.artifact,
+            alt=state.expanded_post.title,
+            existing_error=infographic_result.error,
+        )
 
         return replace(
             state,
@@ -191,7 +197,7 @@ class BlogGenerationWorkflow:
             html_retry_count=html_result.retry_count,
             image_retry_count=image_result.retry_count,
             infographic_artifact=infographic_result.artifact,
-            infographic_error=infographic_result.error,
+            infographic_error=infographic_error,
             infographic_attempted=True,
             artifact_round=state.artifact_round + 1,
             errors=[*state.errors, *html_result.errors, *image_result.errors],
@@ -270,6 +276,25 @@ class BlogGenerationWorkflow:
                     errors=[f"Image artifact generation failed: {exc}"],
                 )
         return current
+
+    def _include_pinterest_in_article(
+        self,
+        *,
+        html_artifact: LocalArtifact | None,
+        infographic_artifact: LocalArtifact | None,
+        alt: str,
+        existing_error: str,
+    ) -> str:
+        """Add the pin to the article only after a successful render."""
+        if infographic_artifact is None or html_artifact is None:
+            return existing_error
+        try:
+            self.artifact_service.insert_pinterest_infographic(html_artifact.local_path, alt=alt)
+        except Exception as exc:
+            message = f"Pinterest infographic layout insert failed: {exc}"
+            logger.warning(message)
+            return existing_error or message
+        return existing_error
 
     async def run_infographic_once(self, state: BlogGraphState) -> _InfographicOutcome:
         """Generate one Pinterest pin. Failures stay off BlogGraphState.errors."""
