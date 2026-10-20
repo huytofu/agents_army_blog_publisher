@@ -35,7 +35,10 @@ from blog_manager.schemas import (
     ImageArtifactState,
     LocalArtifact,
 )
-from blog_manager.services.local_artifact_service import LocalArtifactService
+from blog_manager.services.local_artifact_service import (
+    LocalArtifactService,
+    infographic_canvas_size,
+)
 from blog_manager.services.s3_blog_store import S3BlogStore
 
 try:
@@ -289,7 +292,13 @@ class BlogGenerationWorkflow:
         if infographic_artifact is None or html_artifact is None:
             return existing_error
         try:
-            self.artifact_service.insert_pinterest_infographic(html_artifact.local_path, alt=alt)
+            width, height = infographic_canvas_size(infographic_artifact.metadata)
+            self.artifact_service.insert_pinterest_infographic(
+                html_artifact.local_path,
+                alt=alt,
+                width=width,
+                height=height,
+            )
         except Exception as exc:
             message = f"Pinterest infographic layout insert failed: {exc}"
             logger.warning(message)

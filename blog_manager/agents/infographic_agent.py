@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from dataclasses import dataclass
 from typing import Any
 
-from blog_manager.config import SUBAGENT_LLM_CONFIG
+from blog_manager.config import INFOGRAPHIC_IMAGE_CONFIG, SUBAGENT_LLM_CONFIG
 from blog_manager.schemas import ExpandedPost, LocalArtifact
 from blog_manager.services.llm_client import BlogLlmClient
 from blog_manager.services.local_artifact_service import LocalArtifactService
@@ -86,13 +87,22 @@ class InfographicAgent:
             ]
         )
         spec = _spec_from_response(raw)
-        prompt = _render_prompt(spec)
-        artifact = await self.artifact_service.create_pinterest_jpg(post, prompt=prompt)
+        shape, width, height = _choose_infographic_canvas()
+        prompt = _render_prompt(spec, shape=shape, width=width, height=height)
+        artifact = await self.artifact_service.create_pinterest_jpg(
+            post,
+            prompt=prompt,
+            width=width,
+            height=height,
+        )
         artifact.metadata.update(
             {
                 "infographic_agent": "infographic_prompt_agent",
                 "diagram_type": spec.diagram_type,
                 "title": spec.title,
+                "canvas": shape,
+                "width": str(width),
+                "height": str(height),
             }
         )
         return artifact
@@ -159,7 +169,14 @@ def _exact_label(value: Any, *, field_name: str) -> str:
     return label
 
 
-def _render_prompt(spec: _GraphicSpec) -> str:
+def _choose_infographic_canvas() -> tuple[str, int, int]:
+    """Pick one Ideogram canvas. Each shape is equally likely."""
+    shape = random.choice(("rectangular", "squared"))
+    selected = INFOGRAPHIC_IMAGE_CONFIG[shape]
+    return shape, int(selected["WIDTH"]), int(selected["HEIGHT"])
+
+
+def _render_prompt(spec: _GraphicSpec, *, shape: str, width: int, height: int) -> str:
     exact_strings = [spec.title, *spec.labels]
     body = spec.image_prompt
     if not body or any(label not in body for label in exact_strings):
@@ -169,9 +186,13 @@ def _render_prompt(spec: _GraphicSpec) -> str:
         body = f'{spec.diagram_type} infographic. Title exactly: "{spec.title}". {steps}'
 
     quoted = ", ".join(f'"{label}"' for label in exact_strings)
+    if shape == "squared":
+        canvas = f"square Pinterest pin, 1:1 aspect ratio, {width}x{height}."
+    else:
+        canvas = f"vertical Pinterest pin, 2:3 aspect ratio, {width}x{height}."
     return (
         f"{body} "
-        "Canvas: vertical Pinterest pin, 2:3 aspect ratio, 1024x1536. "
+        f"Canvas: {canvas} "
         f"Layout: one {spec.diagram_type} with large readable sans-serif text and clear spacing. "
         "Palette: soothing greens, warm neutrals, soft indigo, high contrast. "
         f"Render these strings exactly and do not add any other words: {quoted}."

@@ -206,10 +206,22 @@ INFOGRAPHIC_IMAGE_CONFIG = {
     "PROVIDER": os.getenv("BLOG_INFOGRAPHIC_IMAGE_PROVIDER", os.getenv("BLOG_IMAGE_PROVIDER", "")),
     "API_KEY": os.getenv("BLOG_INFOGRAPHIC_IMAGE_API_KEY", os.getenv("BLOG_IMAGE_API_KEY", "")),
     "MODEL": os.getenv("BLOG_INFOGRAPHIC_IMAGE_MODEL", "ideogram/ideogram-4.0"),
-    # Pinterest standard 2:3. 1024x1536 is exactly 2:3, divisible by 16, and
-    # inside Together's pixel range [921600, 16777216].
-    "WIDTH": _int_env("BLOG_INFOGRAPHIC_WIDTH", 1024),
-    "HEIGHT": _int_env("BLOG_INFOGRAPHIC_HEIGHT", 1536),
+    # Ideogram 4.0 sizes. 1664x2496 is 2:3; 2048x2048 is the supported square.
+    # Both are divisible by 16 and inside Together's pixel range.
+    "rectangular": {
+        "WIDTH": _int_env(
+            "BLOG_INFOGRAPHIC_RECTANGULAR_WIDTH",
+            _int_env("BLOG_INFOGRAPHIC_WIDTH", 1664),
+        ),
+        "HEIGHT": _int_env(
+            "BLOG_INFOGRAPHIC_RECTANGULAR_HEIGHT",
+            _int_env("BLOG_INFOGRAPHIC_HEIGHT", 2496),
+        ),
+    },
+    "squared": {
+        "WIDTH": _int_env("BLOG_INFOGRAPHIC_SQUARED_WIDTH", 2048),
+        "HEIGHT": _int_env("BLOG_INFOGRAPHIC_SQUARED_HEIGHT", 2048),
+    },
     "TIMEOUT_SEC": _int_env("BLOG_INFOGRAPHIC_IMAGE_TIMEOUT_SEC", _int_env("BLOG_IMAGE_TIMEOUT_SEC", 120)),
 }
 

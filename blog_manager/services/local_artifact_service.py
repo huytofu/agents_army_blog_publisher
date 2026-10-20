@@ -297,14 +297,21 @@ class LocalArtifactService:
             },
         )
 
-    async def create_pinterest_jpg(self, post: ExpandedPost, *, prompt: str) -> LocalArtifact:
+    async def create_pinterest_jpg(
+        self,
+        post: ExpandedPost,
+        *,
+        prompt: str,
+        width: int,
+        height: int,
+    ) -> LocalArtifact:
         """Generate one local Pinterest infographic JPEG. Does not affect cover images."""
         slug = _validate_slug(post.slug)
         output_path = self._post_dir(slug) / PINTEREST_INFOGRAPHIC_FILENAME
         image_bytes = await self.infographic_image_provider.generate_jpeg(
             prompt=prompt,
-            width=int(INFOGRAPHIC_IMAGE_CONFIG["WIDTH"]),
-            height=int(INFOGRAPHIC_IMAGE_CONFIG["HEIGHT"]),
+            width=width,
+            height=height,
         )
         jpeg_bytes = _coerce_jpeg(image_bytes)
         _write_bytes(output_path, jpeg_bytes)
@@ -312,14 +319,26 @@ class LocalArtifactService:
             local_path=str(output_path),
             relative_key=f"blog/{slug}/{PINTEREST_INFOGRAPHIC_FILENAME}",
             content_type=PINTEREST_INFOGRAPHIC_CONTENT_TYPE,
-            metadata={"slug": slug, "artifact_type": "pinterest_infographic"},
+            metadata={
+                "slug": slug,
+                "artifact_type": "pinterest_infographic",
+                "width": str(width),
+                "height": str(height),
+            },
         )
 
-    def insert_pinterest_infographic(self, html_path: str, *, alt: str) -> None:
+    def insert_pinterest_infographic(
+        self,
+        html_path: str,
+        *,
+        alt: str,
+        width: int,
+        height: int,
+    ) -> None:
         """Insert the pin after the article body when the image was generated."""
         path = self._safe_path(html_path)
         html_text = path.read_text(encoding="utf-8")
-        updated = _insert_pinterest_figure(html_text, alt=alt)
+        updated = _insert_pinterest_figure(html_text, alt=alt, width=width, height=height)
         if updated != html_text:
             path.write_text(updated, encoding="utf-8")
 
@@ -861,10 +880,19 @@ _PINTEREST_FIGURE_ANCHORS = (
 )
 
 
-def _pinterest_figure_html(*, alt: str) -> str:
+def infographic_canvas_size(metadata: dict[str, str] | None) -> tuple[int, int]:
+    """Return the canvas that was rendered, or the rectangular default."""
+    metadata = metadata or {}
+    width = str(metadata.get("width") or "").strip()
+    height = str(metadata.get("height") or "").strip()
+    if width.isdigit() and height.isdigit():
+        return int(width), int(height)
+    rectangular = INFOGRAPHIC_IMAGE_CONFIG["rectangular"]
+    return int(rectangular["WIDTH"]), int(rectangular["HEIGHT"])
+
+
+def _pinterest_figure_html(*, alt: str, width: int, height: int) -> str:
     safe_alt = html.escape(alt.strip() or "Infographic")
-    width = int(INFOGRAPHIC_IMAGE_CONFIG["WIDTH"])
-    height = int(INFOGRAPHIC_IMAGE_CONFIG["HEIGHT"])
     return (
         '<figure class="pinterest-infographic">'
         f'<img src="{PINTEREST_INFOGRAPHIC_FILENAME}" width="{width}" height="{height}" alt="{safe_alt}">'
@@ -872,11 +900,11 @@ def _pinterest_figure_html(*, alt: str) -> str:
     )
 
 
-def _insert_pinterest_figure(html_text: str, *, alt: str) -> str:
+def _insert_pinterest_figure(html_text: str, *, alt: str, width: int, height: int) -> str:
     """Place the pin after the article body and before the content note."""
     if 'class="pinterest-infographic"' in html_text:
         return html_text
-    figure = _pinterest_figure_html(alt=alt)
+    figure = _pinterest_figure_html(alt=alt, width=width, height=height)
     for anchor in _PINTEREST_FIGURE_ANCHORS:
         index = html_text.find(anchor)
         if index == -1:
