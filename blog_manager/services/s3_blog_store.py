@@ -188,7 +188,7 @@ class S3BlogStore:
             key,
             updated_html,
             content_type=POST_HTML_CONTENT_TYPE,
-            cache_control=_SHORT_LIVED_CACHE_CONTROL,
+            cache_control=_FEED_CACHE_CONTROL,
         )
 
     def write_weekly_highlight(self, entries: Iterable[dict[str, Any]]) -> None:
