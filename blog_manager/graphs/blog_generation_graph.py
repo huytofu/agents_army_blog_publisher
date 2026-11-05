@@ -35,6 +35,7 @@ from blog_manager.schemas import (
     ImageArtifactState,
     LocalArtifact,
 )
+from blog_manager.services.idea_parser import related_slugs_from_frontmatter
 from blog_manager.services.local_artifact_service import (
     LocalArtifactService,
     infographic_canvas_size,
@@ -180,8 +181,15 @@ class BlogGenerationWorkflow:
             retry_count=state.image_retry_count,
         )
         posts_feed = self._read_posts_feed_for_related_posts()
+        pinned_slugs = related_slugs_from_frontmatter(
+            None if state.idea is None else state.idea.frontmatter.get("related_slugs")
+        )
         html_result, image_result, infographic_result = await asyncio.gather(
-            self.run_html_subgraph(html_state, posts_feed=posts_feed),
+            self.run_html_subgraph(
+                html_state,
+                posts_feed=posts_feed,
+                pinned_slugs=pinned_slugs,
+            ),
             self.run_image_subgraph(image_state),
             self.run_infographic_once(state),
         )
@@ -211,6 +219,7 @@ class BlogGenerationWorkflow:
         state: HtmlArtifactState,
         *,
         posts_feed: list[dict[str, object]] | None = None,
+        pinned_slugs: list[str] | None = None,
     ) -> HtmlArtifactState:
         max_retries = int(self.config["SUBAGENT_MAX_RETRIES"])
         current = state
@@ -221,6 +230,7 @@ class BlogGenerationWorkflow:
                     instructions=current.instructions,
                     prior_errors=current.errors,
                     posts_feed=posts_feed,
+                    pinned_slugs=pinned_slugs,
                 )
                 errors = self.artifact_service.validate_artifact(
                     artifact,

@@ -44,6 +44,36 @@ def mark_idea_processed(raw_text: str, *, slug: str, post_key: str) -> str:
     return _render_frontmatter(frontmatter) + body
 
 
+def related_slugs_from_frontmatter(value: Any) -> list[str]:
+    """Read pinned related-post slugs from idea frontmatter.
+
+    Accepts a YAML list or a comma-separated string. Blank items are dropped,
+    duplicates are ignored, and the first-seen order is kept.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    elif isinstance(value, str):
+        raw_items = value.split(",")
+    else:
+        text = str(value).strip()
+        raw_items = [text] if text else []
+
+    slugs: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        slug = item.strip()
+        if not slug:
+            continue
+        key = slug.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        slugs.append(slug)
+    return slugs
+
+
 def slugify(value: str, *, fallback: str = "blog-post") -> str:
     """Create a URL-safe slug from a title or hint."""
     normalized = unicodedata.normalize("NFKD", value)
@@ -121,9 +151,19 @@ def _parse_scalar(value: str) -> Any:
 def _render_frontmatter(frontmatter: dict[str, Any]) -> str:
     lines = [_FRONTMATTER_DELIMITER + "\n"]
     for key, value in frontmatter.items():
-        lines.append(f"{key}: {_render_scalar(value)}\n")
+        if isinstance(value, list):
+            lines.append(_render_list_field(key, value))
+        else:
+            lines.append(f"{key}: {_render_scalar(value)}\n")
     lines.append(_FRONTMATTER_DELIMITER + "\n")
     return "".join(lines)
+
+
+def _render_list_field(key: str, value: list[Any]) -> str:
+    if not value:
+        return f"{key}: []\n"
+    items = "".join(f"  - {_render_scalar(item)}\n" for item in value)
+    return f"{key}:\n{items}"
 
 
 def _render_scalar(value: Any) -> str:

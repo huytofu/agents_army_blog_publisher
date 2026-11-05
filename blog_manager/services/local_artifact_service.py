@@ -238,11 +238,12 @@ class LocalArtifactService:
         post: ExpandedPost,
         *,
         posts_feed: list[dict[str, object]] | None = None,
+        pinned_slugs: list[str] | None = None,
     ) -> LocalArtifact:
         """Render and write a static article HTML file under the post slug."""
         slug = _validate_slug(post.slug)
         output_path = self._post_dir(slug) / POST_HTML_FILENAME
-        html_text = render_article_html(post, posts_feed=posts_feed)
+        html_text = render_article_html(post, posts_feed=posts_feed, pinned_slugs=pinned_slugs)
         _write_text(output_path, html_text)
         return LocalArtifact(
             local_path=str(output_path),
@@ -470,6 +471,7 @@ def render_article_html(
     post: ExpandedPost,
     *,
     posts_feed: list[dict[str, object]] | None = None,
+    pinned_slugs: list[str] | None = None,
 ) -> str:
     """Render a complete static HTML article from expanded post content."""
     title = html.escape(post.title)
@@ -493,7 +495,11 @@ def render_article_html(
     references = _render_citation_suggestions(post.citation_suggestions)
     faq_section = _render_faq_section(post)
     app_section = _render_app_section_link(post)
-    growth_sections = _render_growth_sections(post, posts_feed=posts_feed)
+    growth_sections = _render_growth_sections(
+        post,
+        posts_feed=posts_feed,
+        pinned_slugs=pinned_slugs,
+    )
     store_cta = _render_store_cta(post)
     blog_api_base_url = html.escape(_blog_api_base_url())
     article_script = _render_article_script(post)
@@ -1004,6 +1010,64 @@ def _render_citation_suggestions(citation_suggestions: list[str]) -> str:
     )
 
 
+_CONTENT_TOKEN_RE = re.compile(r"[a-z]+")
+_RELATED_OVERLAP_MIN_SCORE = 4
+_CONTENT_STOPWORDS = frozenset(
+    {
+        "about",
+        "also",
+        "and",
+        "are",
+        "been",
+        "being",
+        "but",
+        "can",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "how",
+        "into",
+        "its",
+        "just",
+        "more",
+        "most",
+        "not",
+        "only",
+        "our",
+        "over",
+        "own",
+        "same",
+        "some",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "very",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "who",
+        "why",
+        "will",
+        "with",
+        "you",
+        "your",
+    }
+)
+
+
 def _normalize_tag_set(tags: object) -> set[str]:
     if not isinstance(tags, list):
         return set()
@@ -1015,44 +1079,149 @@ def _normalize_tag_set(tags: object) -> set[str]:
     return normalized
 
 
+def _content_tokens(text: object) -> set[str]:
+    """Content words from a title or excerpt, with a light plural fold."""
+    tokens: set[str] = set()
+    for raw in _CONTENT_TOKEN_RE.findall(str(text or "").casefold()):
+        if len(raw) < 3 or raw in _CONTENT_STOPWORDS:
+            continue
+        if len(raw) > 4 and raw.endswith("s") and not raw.endswith("ss"):
+            raw = raw[:-1]
+        if len(raw) < 3 or raw in _CONTENT_STOPWORDS:
+            continue
+        tokens.add(raw)
+    return tokens
+
+
+def _title_excerpt_overlap_score(
+    current_title: set[str],
+    current_excerpt: set[str],
+    entry_title: set[str],
+    entry_excerpt: set[str],
+) -> int:
+    """Score shared meaning. Title words count double.
+
+    A score of 4 is two shared title words, four shared excerpt words, or one
+    shared title word plus two shared excerpt words.
+    """
+    shared_title = current_title & entry_title
+    shared_text = (current_title | current_excerpt) & (entry_title | entry_excerpt)
+    return (2 * len(shared_title)) + len(shared_text - shared_title)
+
+
+def _older_post_key(entry: dict[str, object]) -> tuple[bool, str, str]:
+    date = str(entry.get("date") or "")
+    title = str(entry.get("title") or "").casefold()
+    return (not date, date, title)
+
+
 def _select_related_posts(
     post: ExpandedPost,
     posts_feed: list[dict[str, object]] | None,
     *,
+    pinned_slugs: list[str] | None = None,
     limit: int = 4,
+    minimum: int = 2,
 ) -> list[dict[str, object]]:
-    """Pick up to `limit` related posts from the blog feed metadata."""
+    """Pick related posts from the blog feed.
+
+    Slots fill in order: pinned slugs, title/excerpt word overlap, then same
+    category (shared tags before older date), then the oldest remaining posts.
+    Fallbacks stop at `minimum`.
+    """
     if not posts_feed or limit <= 0:
         return []
 
-    current_slug = post.slug
+    floor = min(limit, max(minimum, 0))
+    current_slug = str(post.slug or "").strip().casefold()
     current_category = str(post.category or "").strip().casefold()
     current_tags = _normalize_tag_set(post.tags)
-    ranked: list[tuple[tuple[int, int, str, str], dict[str, object]]] = []
+    current_title_tokens = _content_tokens(post.title)
+    current_excerpt_tokens = _content_tokens(post.excerpt)
 
+    by_slug: dict[str, dict[str, object]] = {}
     for entry in posts_feed:
         slug = str(entry.get("slug") or "").strip()
-        if not slug or slug == current_slug:
+        slug_key = slug.casefold()
+        if not slug_key or slug_key == current_slug or slug_key in by_slug:
             continue
+        by_slug[slug_key] = dict(entry)
 
+    selected: list[dict[str, object]] = []
+    seen: set[str] = set()
+
+    def add(entry: dict[str, object]) -> None:
+        slug_key = str(entry.get("slug") or "").strip().casefold()
+        if not slug_key or slug_key in seen:
+            return
+        selected.append(entry)
+        seen.add(slug_key)
+
+    for slug in pinned_slugs or []:
+        if len(selected) >= limit:
+            break
+        entry = by_slug.get(str(slug or "").strip().casefold())
+        if entry is not None:
+            add(entry)
+
+    ranked: list[tuple[tuple[int, int, int, str, str], dict[str, object]]] = []
+    for slug_key, entry in by_slug.items():
+        if slug_key in seen:
+            continue
+        score = _title_excerpt_overlap_score(
+            current_title_tokens,
+            current_excerpt_tokens,
+            _content_tokens(entry.get("title")),
+            _content_tokens(entry.get("excerpt")),
+        )
+        if score < _RELATED_OVERLAP_MIN_SCORE:
+            continue
         entry_category = str(entry.get("category") or "").strip().casefold()
-        entry_tags = _normalize_tag_set(entry.get("tags"))
         category_match = bool(current_category and entry_category == current_category)
-        shared_tag_count = len(current_tags & entry_tags)
-        if not category_match and shared_tag_count == 0:
-            continue
-
+        shared_tag_count = len(current_tags & _normalize_tag_set(entry.get("tags")))
         title = str(entry.get("title") or "Untitled Post")
         date = str(entry.get("date") or "")
         ranked.append(
             (
-                (int(category_match), shared_tag_count, date, title.casefold()),
-                dict(entry),
+                (score, int(category_match), shared_tag_count, date, title.casefold()),
+                entry,
             )
         )
 
     ranked.sort(key=lambda item: item[0], reverse=True)
-    return [entry for _, entry in ranked[:limit]]
+    for _, entry in ranked:
+        if len(selected) >= limit:
+            break
+        add(entry)
+
+    if len(selected) < floor and current_category:
+        category_matches = [
+            entry
+            for slug_key, entry in by_slug.items()
+            if slug_key not in seen
+            and str(entry.get("category") or "").strip().casefold() == current_category
+        ]
+        def category_fallback_key(entry: dict[str, object]) -> tuple[int, bool, str, str]:
+            shared_tag_count = len(current_tags & _normalize_tag_set(entry.get("tags")))
+            date = str(entry.get("date") or "")
+            title = str(entry.get("title") or "").casefold()
+            return (-shared_tag_count, not date, date, title)
+
+        category_matches.sort(key=category_fallback_key)
+        for entry in category_matches:
+            if len(selected) >= floor:
+                break
+            add(entry)
+
+    if len(selected) < floor:
+        remaining = [entry for slug_key, entry in by_slug.items() if slug_key not in seen]
+        remaining.sort(key=_older_post_key)
+        for entry in remaining:
+            if len(selected) >= floor:
+                break
+            add(entry)
+
+    return selected
 
 
 def _related_post_href(entry: dict[str, object]) -> str:
@@ -1066,8 +1235,10 @@ def _related_post_href(entry: dict[str, object]) -> str:
 def _render_related_posts(
     post: ExpandedPost,
     posts_feed: list[dict[str, object]] | None,
+    *,
+    pinned_slugs: list[str] | None = None,
 ) -> str:
-    related = _select_related_posts(post, posts_feed)
+    related = _select_related_posts(post, posts_feed, pinned_slugs=pinned_slugs)
     if not related:
         return """
         <section class="related-posts">
@@ -1093,6 +1264,7 @@ def _render_growth_sections(
     post: ExpandedPost,
     *,
     posts_feed: list[dict[str, object]] | None = None,
+    pinned_slugs: list[str] | None = None,
 ) -> str:
     title = html.escape(post.title)
     slug = html.escape(post.slug)
@@ -1102,7 +1274,7 @@ def _render_growth_sections(
     share_url_attr = html.escape(article_url, quote=True)
     # WhatsApp expects a single pre-composed message (title + link) as `text`.
     whatsapp_text = quote(f"{post.title} {article_url}")
-    related_posts = _render_related_posts(post, posts_feed)
+    related_posts = _render_related_posts(post, posts_feed, pinned_slugs=pinned_slugs)
     return f"""
         <section class="subscribe-cta">
             <h2>Get the weekly highlight</h2>

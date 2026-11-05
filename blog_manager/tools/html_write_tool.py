@@ -17,5 +17,10 @@ class HtmlWriteTool:
         post: ExpandedPost,
         *,
         posts_feed: list[dict[str, object]] | None = None,
+        pinned_slugs: list[str] | None = None,
     ) -> LocalArtifact:
-        return self.artifact_service.write_article_html(post, posts_feed=posts_feed)
+        return self.artifact_service.write_article_html(
+            post,
+            posts_feed=posts_feed,
+            pinned_slugs=pinned_slugs,
+        )
