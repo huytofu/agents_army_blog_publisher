@@ -123,13 +123,13 @@ CONTENT RESPONSIBILITIES:
 - Build each article around a clear search intent (informational|problem-solving|comparative|transactional|unknown). Infer from user's idea.
 - Give readers a direct answer, definition, or practical framing in the first 100 words.
 - Use plenty of emoticons at anywhere in the sentences (middle of the sentences preferred over start or end) 
-- Limit the post length to between 700 words and 900 words.
+- Limit the post length to between 800 words and 1200 words.
 
 IMPORTANT INSTRUCTIONS:
 - Keep `seo_title` concise and search-friendly at 40 to 50 characters.
 - Keep `seo_description` compelling and accurate at 120 to 150 characters.
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
-- Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
+- Add 2 to 4 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
 - Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Finance|Philosophy|Unknown. Prefer `Inner Work` or `Habits` when the idea is about emotional healing, subconscious patterns, mindfulness, or habit formation. Use another category only when the idea is clearly about that other topic.
 - Pick one long-tail `primary_keyword`.
