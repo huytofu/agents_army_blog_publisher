@@ -25,7 +25,7 @@ BLOG_CATEGORIES = [
     "Purpose",
     "Stoicism",
     "Relationships",
-    "Discipline",
+    "Finance",
     "Productivity",
     "Habits",
     "Inner Work",
@@ -131,7 +131,7 @@ IMPORTANT INSTRUCTIONS:
 - Provide a high-level `image_prompt` describing the desired cover mood and subject.
 - Add 1 to 2 supporting image placeholders as full-line JPEG markers like `{image_001.jpg}` in `body_markdown`.
 - For every supporting image placeholder, add one matching `supporting_images` item with filename, prompt, and alt_text.
-- Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Discipline|Philosophy|Unknown. Prefer `Inner Work` or `Habits` when the idea is about emotional healing, subconscious patterns, mindfulness, or habit formation. Use another category only when the idea is clearly about that other topic.
+- Choose one `category` for topical authority from: Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Finance|Philosophy|Unknown. Prefer `Inner Work` or `Habits` when the idea is about emotional healing, subconscious patterns, mindfulness, or habit formation. Use another category only when the idea is clearly about that other topic.
 - Pick one long-tail `primary_keyword`.
 a) Use the primary keyword naturally in the opening paragraph, `seo_title`, and `seo_description`.
 b) Add 2 to 4 related short keywords to `tags` to help readers search for relevant articles.
@@ -166,7 +166,7 @@ Return ONLY valid JSON with exactly these top-level fields:
     }
   ],
   "tags": ["short keyword"],
-  "category": "Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Discipline|Philosophy|Unknown",
+  "category": "Purpose|Stoicism|Relationships|Productivity|Habits|Inner Work|Finance|Philosophy|Unknown",
   "seo_title": "string",
   "seo_description": "string",
   "primary_keyword": "long-tail keyword string",
